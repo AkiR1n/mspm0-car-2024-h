@@ -11,6 +11,7 @@ typedef struct {
     int32_t  left_count;
     int32_t  right_count;
     uint8_t  imu_ready;
+    uint8_t  imu_stable;
     float    yaw_deg;
     float    gyro_z;
     float    pitch_deg;

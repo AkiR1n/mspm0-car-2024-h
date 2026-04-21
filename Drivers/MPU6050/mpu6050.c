@@ -44,6 +44,7 @@ struct hal_s {
 };
 static struct hal_s hal = {0};
 static int s_mpu6050_ready = 0;
+static mpu6050_config_t s_mpu6050_cfg;
 
 unsigned long sensor_timestamp;
 short gyro[3], accel[3], sensors;
@@ -52,6 +53,22 @@ long quat[4];
 
 #define q30  (1073741824.0f) /* 2^30 = 1073741824 */
 float pitch, roll, yaw;
+
+const mpu6050_config_t MPU6050_CONFIG_DEFAULT = {
+    .sample_rate_hz = DEFAULT_MPU_HZ,
+    .fifo_rate_hz = DEFAULT_MPU_HZ,
+    .enable_dmp_auto_gyro_cal = 1u,
+    .enable_tap = 0u,
+    .enable_android_orient = 0u,
+};
+
+const mpu6050_config_t MPU6050_CONFIG_FAST_START = {
+    .sample_rate_hz = DEFAULT_MPU_HZ,
+    .fifo_rate_hz = DEFAULT_MPU_HZ,
+    .enable_dmp_auto_gyro_cal = 0u,
+    .enable_tap = 0u,
+    .enable_android_orient = 0u,
+};
 
 /* The sensors can be mounted onto the board in any orientation. The mounting
  * matrix seen below tells the MPL how to rotate the raw data from thei
@@ -121,11 +138,15 @@ static inline unsigned short inv_orientation_matrix_to_scalar(
     return scalar;
 }
 
-int MPU6050_Init(void)
+int MPU6050_InitWithConfig(const mpu6050_config_t *cfg)
 {
     int result;
     unsigned char accel_fsr;
     unsigned short gyro_rate, gyro_fsr;
+    unsigned short dmp_features = DMP_FEATURE_6X_LP_QUAT |
+        DMP_FEATURE_SEND_RAW_ACCEL | DMP_FEATURE_SEND_CAL_GYRO;
+
+    s_mpu6050_cfg = (cfg != NULL) ? *cfg : MPU6050_CONFIG_DEFAULT;
 
     s_mpu6050_ready = 0;
     pitch = 0.0f;
@@ -145,7 +166,7 @@ int MPU6050_Init(void)
     result += mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL);
     /* Push both gyro and accel data into the FIFO. */
     result += mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
-    result += mpu_set_sample_rate(DEFAULT_MPU_HZ);
+    result += mpu_set_sample_rate(s_mpu6050_cfg.sample_rate_hz);
     /* Read back configuration in case it was set improperly. */
     result += mpu_get_sample_rate(&gyro_rate);
     result += mpu_get_gyro_fsr(&gyro_fsr);
@@ -191,11 +212,20 @@ int MPU6050_Init(void)
         inv_orientation_matrix_to_scalar(gyro_orientation));
     result += dmp_register_tap_cb(tap_cb);
     result += dmp_register_android_orient_cb(android_orient_cb);
-    hal.dmp_features = DMP_FEATURE_6X_LP_QUAT | DMP_FEATURE_TAP |
-        DMP_FEATURE_ANDROID_ORIENT | DMP_FEATURE_SEND_RAW_ACCEL | DMP_FEATURE_SEND_CAL_GYRO |
-        DMP_FEATURE_GYRO_CAL;
+
+    if (s_mpu6050_cfg.enable_tap != 0u) {
+        dmp_features |= DMP_FEATURE_TAP;
+    }
+    if (s_mpu6050_cfg.enable_android_orient != 0u) {
+        dmp_features |= DMP_FEATURE_ANDROID_ORIENT;
+    }
+    if (s_mpu6050_cfg.enable_dmp_auto_gyro_cal != 0u) {
+        dmp_features |= DMP_FEATURE_GYRO_CAL;
+    }
+
+    hal.dmp_features = dmp_features;
     result += dmp_enable_feature(hal.dmp_features);
-    result += dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+    result += dmp_set_fifo_rate(s_mpu6050_cfg.fifo_rate_hz);
     result += mpu_set_dmp_state(1);
     hal.dmp_on = 1;
 
@@ -207,9 +237,30 @@ int MPU6050_Init(void)
     return 0;
 }
 
+int MPU6050_Init(void)
+{
+    return MPU6050_InitWithConfig(&MPU6050_CONFIG_DEFAULT);
+}
+
 int MPU6050_IsReady(void)
 {
     return s_mpu6050_ready;
+}
+
+int MPU6050_GetGyroSens(float *sens)
+{
+    if ((s_mpu6050_ready == 0) || (sens == NULL)) {
+        return -1;
+    }
+    return mpu_get_gyro_sens(sens);
+}
+
+int MPU6050_SetDmpGyroBiasQ16(const long bias_q16[3])
+{
+    if ((s_mpu6050_ready == 0) || (bias_q16 == NULL)) {
+        return -1;
+    }
+    return dmp_set_gyro_bias((long *)bias_q16);
 }
 
 int Read_Quad(void)

@@ -63,9 +63,10 @@ void mode_debug_task(void *arg)
         now = xTaskGetTickCount();
         if ((now - last_log_tick) >= pdMS_TO_TICKS(MODE_DEBUG_LOG_PERIOD_MS)) {
             uart_printf(
-                "mode=%s imu=%u ypr=(%.2f,%.2f,%.2f) gz=%.1f up=%lus stable=%lus\r\n",
+                "mode=%s imu=%u/%u ypr=(%.2f,%.2f,%.2f) gz=%.1f up=%lus stable=%lus\r\n",
                 app_mode_name(snapshot.mode),
                 (unsigned)snapshot.feedback.imu_ready,
+                (unsigned)snapshot.feedback.imu_stable,
                 (double)snapshot.feedback.yaw_deg,
                 (double)snapshot.feedback.pitch_deg,
                 (double)snapshot.feedback.roll_deg,

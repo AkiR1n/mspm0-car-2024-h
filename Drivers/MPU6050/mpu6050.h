@@ -21,11 +21,27 @@
 #ifndef _MPU6050_H_
 #define _MPU6050_H_
 
+#include <stdint.h>
+
 extern short gyro[3], accel[3];
 extern float pitch, roll, yaw;
 
+typedef struct {
+    uint8_t sample_rate_hz;
+    uint8_t fifo_rate_hz;
+    uint8_t enable_dmp_auto_gyro_cal;
+    uint8_t enable_tap;
+    uint8_t enable_android_orient;
+} mpu6050_config_t;
+
+extern const mpu6050_config_t MPU6050_CONFIG_DEFAULT;
+extern const mpu6050_config_t MPU6050_CONFIG_FAST_START;
+
 int MPU6050_Init(void);
+int MPU6050_InitWithConfig(const mpu6050_config_t *cfg);
 int MPU6050_IsReady(void);
+int MPU6050_GetGyroSens(float *sens);
+int MPU6050_SetDmpGyroBiasQ16(const long bias_q16[3]);
 int Read_Quad(void);
 
 #endif  /* #ifndef _MPU6050_H_ */
