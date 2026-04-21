@@ -1,45 +1,124 @@
 #include "app_state.h"
 
-volatile app_state_t g_app_state = {
-    .imu_ready = 0u,
-    .yaw_deg = 0.0f,
-    .pitch_deg = 0.0f,
-    .roll_deg = 0.0f,
-    .line_position = 0,
-    .line_bits = 0u,
-    .left_pps = 0,
-    .right_pps = 0,
-    .mode = MOTION_MODE_STOP,
-    .base_speed_pps = 0.0f,
-    .last_turn = TURN_DIR_NONE,
-};
+#include <stddef.h>
 
-const char *app_motion_mode_name(motion_mode_t mode)
+#include "FreeRTOS.h"
+#include "task.h"
+
+static app_state_snapshot_t s_state;
+
+void app_state_init(void)
 {
-    switch (mode) {
-    case MOTION_MODE_LINE_FOLLOW:
-        return "LINE";
-    case MOTION_MODE_YAW_HOLD:
-        return "YAW";
-    case MOTION_MODE_DIFFERENTIAL:
-        return "DIFF";
-    case MOTION_MODE_OPEN_LOOP:
-        return "OPEN";
-    case MOTION_MODE_STOP:
-    default:
-        return "STOP";
-    }
+    taskENTER_CRITICAL();
+    s_state.mode = APP_MODE_STOP;
+    s_state.command.stop = 1u;
+    s_state.command.enable_closed_loop = 1u;
+    s_state.command.v_mps = 0.0f;
+    s_state.command.w_radps = 0.0f;
+    taskEXIT_CRITICAL();
 }
 
-const char *app_turn_name(turn_dir_t dir)
+void app_state_set_mode(app_mode_t mode)
 {
-    switch (dir) {
-    case TURN_DIR_LEFT:
-        return "LEFT";
-    case TURN_DIR_RIGHT:
-        return "RIGHT";
-    case TURN_DIR_NONE:
+    taskENTER_CRITICAL();
+    s_state.mode = mode;
+    taskEXIT_CRITICAL();
+}
+
+app_mode_t app_state_get_mode(void)
+{
+    app_mode_t mode;
+
+    taskENTER_CRITICAL();
+    mode = s_state.mode;
+    taskEXIT_CRITICAL();
+    return mode;
+}
+
+void app_state_set_feedback(const chassis_feedback_t *feedback)
+{
+    if (feedback == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    s_state.feedback = *feedback;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_get_feedback(chassis_feedback_t *feedback)
+{
+    if (feedback == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *feedback = s_state.feedback;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_set_command(const chassis_command_t *command)
+{
+    if (command == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    s_state.command = *command;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_get_command(chassis_command_t *command)
+{
+    if (command == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *command = s_state.command;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_set_debug(const chassis_debug_t *debug)
+{
+    if (debug == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    s_state.debug = *debug;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_get_debug(chassis_debug_t *debug)
+{
+    if (debug == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *debug = s_state.debug;
+    taskEXIT_CRITICAL();
+}
+
+void app_state_get_snapshot(app_state_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *snapshot = s_state;
+    taskEXIT_CRITICAL();
+}
+
+const char *app_mode_name(app_mode_t mode)
+{
+    switch (mode) {
+    case APP_MODE_TWIST_OPEN:
+        return "TWIST";
+    case APP_MODE_STOP:
     default:
-        return "NONE";
+        return "STOP";
     }
 }

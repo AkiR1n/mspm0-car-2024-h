@@ -9,8 +9,11 @@ include_directories(
     ./Sources/tasks
     ./FreeRTOS/include
     ./FreeRTOS/portable/GCC/ARM_CM0/
+    ./Control
+    ./Drivers/Hal
+    ./Drivers/Devices
     ./Drivers/MSPM0
-    ./Drivers/MotionV2/include
+    ./Drivers/LineTracker
     ./Drivers/MPU6050
     ./Drivers/OLED_Hardware_I2C
 )
@@ -20,13 +23,16 @@ set(APP_SOURCES
     ./Sources/sysmem.c
     ./Sources/uart_printf.c
     ./Sources/app_state.c
-    ./Sources/tasks/motion_task.c
-    ./Sources/tasks/imu_task.c
-    ./Sources/tasks/oled_task.c
-    ./Sources/tasks/log_task.c
+    ./Sources/chassis_system.c
+    ./Sources/tasks/sensor_task.c
+    ./Sources/tasks/control_task.c
+    ./Sources/tasks/mode_debug_task.c
 )
 file(GLOB MSPM0_SUPPORT_SOURCES "./Drivers/MSPM0/*.c")
-file(GLOB MOTION_V2_SOURCES "./Drivers/MotionV2/src/*.c")
+file(GLOB HAL_SOURCES "./Drivers/Hal/*.c")
+file(GLOB DEVICE_SOURCES "./Drivers/Devices/*.c")
+file(GLOB CONTROL_SOURCES "./Control/*.c")
+set(LINE_SENSOR_SOURCES ./Drivers/LineTracker/linetracker.c)
 file(GLOB MPU6050_SOURCES "./Drivers/MPU6050/*.c")
 set(OLED_SOURCES ./Drivers/OLED_Hardware_I2C/oled_hardware_i2c.c)
 file(GLOB FREERTOS_C_SOURCES "./FreeRTOS/*.c")
@@ -42,7 +48,10 @@ add_executable(${CMAKE_PROJECT_NAME}.elf
     ${FREERTOS_MEMMANG_C_SOURCES}
     ${APP_SOURCES}
     ${MSPM0_SUPPORT_SOURCES}
-    ${MOTION_V2_SOURCES}
+    ${HAL_SOURCES}
+    ${DEVICE_SOURCES}
+    ${CONTROL_SOURCES}
+    ${LINE_SENSOR_SOURCES}
     ${MPU6050_SOURCES}
     ${OLED_SOURCES}
 )

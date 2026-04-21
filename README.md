@@ -90,6 +90,7 @@ cmake --build build --target bin
 - `.vscode/extensions.json`
 - `.vscode/launch.json`
 - `.clangd`
+- `.vscode/jlink-flash.jlink`
 
 推荐日常顺序：
 
@@ -98,3 +99,18 @@ cmake --build build --target bin
 3. 运行 `configure` / `build`
 4. 运行 `hex` 或 `flash-elf`
 5. 运行 `serial`
+
+## J-Link
+
+已补充一套 VS Code J-Link 工作流：
+
+- 调试：`Run and Debug -> J-Link Debug`
+- 附加：`Run and Debug -> J-Link Attach`
+- 烧录：`Task -> flash-jlink`
+
+默认参数：
+
+- device: `MSPM0G3507`
+- interface: `SWD`
+- speed: `4000 kHz`
+- executable: `build/mspm0_school_2026.elf`

@@ -3,10 +3,10 @@
 #include "task.h"
 #include "uart_printf.h"
 
-#include "imu_task.h"
-#include "motion_task.h"
-#include "oled_task.h"
-#include "log_task.h"
+#include "app_state.h"
+#include "control_task.h"
+#include "mode_debug_task.h"
+#include "sensor_task.h"
 
 static void create_task_or_halt(TaskFunction_t fn,
                                 const char *name,
@@ -32,30 +32,19 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 }
 
 /*
- * mspm0-school-2026 entry
- *
- * 任务优先级（configMAX_PRIORITIES = 8）：
- *   6  motion    10 ms 周期
- *   5  imu       10 ms 周期
- *   2  oled      100 ms 刷新
- *   1  log       1 s 打印系统状态
- *
- * 栈大小（words，configSTACK_DEPTH_TYPE = size_t）：
- *   motion   512
- *   imu      512（DMP 初始化路径深）
- *   oled     384
- *   log      256
- *
- * 合计 ≈ 1664 words = 6.5 KB。FreeRTOS heap 16 KB（heap_4）承载 TCB + 栈。
+ * 新主线：
+ *   sensor_task     10 ms 采集编码器/IMU/循迹快照
+ *   control_task    10 ms 执行双轮速度闭环与 Twist(v,w) 差速解算
+ *   mode_debug_task 50 ms 维护命令、OLED 和串口调试输出
  */
 int main(void)
 {
     SYSCFG_DL_init();
+    app_state_init();
 
-    create_task_or_halt(motion_task, "motion", 512, 6);
-    create_task_or_halt(imu_task,    "imu",    512, 5);
-    create_task_or_halt(oled_task,   "oled",   384, 2);
-    create_task_or_halt(log_task,    "log",    256, 1);
+    create_task_or_halt(sensor_task,     "sensor", 512, 6);
+    create_task_or_halt(control_task,    "control", 512, 5);
+    create_task_or_halt(mode_debug_task, "mode",   512, 2);
 
     vTaskStartScheduler();
     uart_printf("\r\n!!! vTaskStartScheduler returned !!!\r\n");

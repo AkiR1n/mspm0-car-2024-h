@@ -77,6 +77,7 @@ add_link_options(-T${SYSCONFIG_PATH}/device_linker.lds)
 add_link_options(-T${SYSCONFIG_PATH}/device.lds.genlibs)
 add_link_options(-Wl,-gc-sections,--print-memory-usage,-Map=memory.map)  # 打印内存使用情况,生成map文件
 add_link_options(-mcpu=cortex-m0plus -march=armv6-m -mthumb -static --specs=nano.specs --specs=nosys.specs -nostartfiles)
+add_link_options(-Wl,-u,_printf_float)
 # 注意：库依赖必须放在 add_executable 之后用 target_link_libraries，
 # 否则 CMake 把它们放在对象文件之前，对 static lib 不起作用。
 
