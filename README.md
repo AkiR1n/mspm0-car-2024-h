@@ -1,12 +1,13 @@
 # mspm0-school-2026
 
-2026 校赛主工程，固定为 `MSPM0G3507 + FreeRTOS + motion-v2 + MPU6050 + OLED + UART0`。
+2026 校赛主工程，当前主线固定为 `MSPM0G3507 + FreeRTOS + chassis refactor + MPU6050 + UART0`。
 
 这个目录直接从 `mspm0-car-2026` 收敛而来，但已经变成独立工程：
 
-- `motion-v2` 已并入 `Drivers/MotionV2`
-- 默认运行主线只保留 `motion / imu / oled / log` 四个任务
-- `K230 / Gimbal / Servo` 仅作为归档源码保留，不参与首版默认构建和运行
+- 默认运行主线已切到 `sensor / control / mode_debug` 三任务
+- 当前主链走 `Drivers/Hal + Drivers/Devices + Control + Sources/tasks`
+- 已脱主线的旧驱动与旧任务已移动到 `archive/legacy/`
+- `Drivers/LineTracker` 暂时仍保留在主目录，因为新的 `line_sensor` 设备层还在直接复用它
 - CCS Theia 只负责 `.syscfg` 图形编辑，日常工作流转到 VS Code
 
 ## 构建环境
@@ -50,24 +51,19 @@ cmake --build build --target bin
 
 | 任务 | 优先级 | 栈 words | 周期 | 说明 |
 | ---- | ---- | ---- | ---- | ---- |
-| `motion_task` | 6 | 512 | 10 ms | 初始化 motor/encoder/linetracker/motion；读取循迹、注入 yaw、推进 `motion_step()` |
-| `imu_task` | 5 | 512 | 10 ms | `MPU6050_Init()` 重试初始化；成功后轮询 `Read_Quad()` |
-| `oled_task` | 2 | 384 | 100 ms | 显示 IMU / yaw / line / mode |
-| `log_task` | 1 | 256 | 1 s | 输出 heap / imu / ypr / line / pps / mode |
+| `sensor_task` | 6 | 512 | 10 ms | 刷新编码器 / IMU / 循迹设备，组装 `chassis_feedback_t` |
+| `control_task` | 5 | 512 | 10 ms | 执行 `Twist(v,w)` 或 `WHEEL_TEST` 控制，输出电机命令 |
+| `mode_debug_task` | 2 | 512 | 20 ms | 处理串口命令，维护模式并输出调试 CSV |
 
 共享状态统一集中在 `Sources/app_state.[ch]`。
 
-## motion-v2 收敛点
+## 当前控制主线
 
-- 电机：`motor_*`
-- 编码器：`encoder_*`
-- 循迹：`linetracker_*`
-- 转弯检测：`turn_detection_*`
-- 高级控制：`motion_*`
-- yaw 反馈：`motion_set_yaw_feedback()`
-- 编码器 GPIO 中断：`GROUP1_IRQHandler -> encoder_on_gpio_irq()`
-- 编码器计时中断：`TIMA1_IRQHandler -> encoder_on_tick_irq()`
-- `turn_detection_update(now_ms)` 在 `motion_task` 周期调用，不再依赖独立 tracker ISR
+- 设备层：`motor_drv` / `encoder_drv` / `imu_drv` / `line_sensor`
+- 控制层：`pid` / `wheel` / `chassis` / `yaw_controller` / `line_controller`
+- 编码器 GPIO 中断：`GROUP1_IRQHandler -> Encoder_OnEdgeIRQ()`
+- 编码器计时中断：`TIMA1_IRQHandler -> Encoder_OnSampleTick()`
+- 当前调试模式以 `WHEEL_TEST` 和 `Twist(v,w)` 为主
 
 ## SysConfig 范围
 

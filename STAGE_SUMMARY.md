@@ -1,5 +1,9 @@
 # mspm0-school-2026 阶段性汇总
 
+> 本文档为较早阶段的历史汇总，记录的是 `motion-v2 + 四任务主线` 时期的状态。
+> 当前工程主线已切换到 `sensor/control/mode_debug` 三任务，且已脱主线的旧驱动、旧任务已移动到 `archive/legacy/`。
+> 现阶段请优先参考 [README.md](/home/aki/workspace_ccstheia/mspm0-school-2026/README.md:1) 和 [REFACTOR_ARCHIVE_20260422.md](/home/aki/workspace_ccstheia/mspm0-school-2026/REFACTOR_ARCHIVE_20260422.md:1)。
+
 ## 1. 当前定位
 
 `mspm0-school-2026` 已作为 2026 校赛主工程落地，目标是固定一条可持续迭代的主线：
@@ -343,19 +347,14 @@ cmake --build build --target hex bin
 
 ### 目录清理
 
-虽然旧模块已退出默认构建，但以下旧目录仍保留：
+当前目录状态已经更新为：
 
-- `Drivers/Motor_Encoder_PID`
-- `Drivers/LineTracker`
-- `Drivers/K230_UART`
-- `Drivers/Gimbal`
-- `Drivers/Servo`
-- `Sources/tasks/pid_task.*`
-- `Sources/tasks/sensor_task.*`
-- `Sources/tasks/strategy_task.*`
-- `Sources/tasks/k230_rx_task.*`
-
-如果后续希望让目录更干净，可以再做一次“归档区迁移”或直接删除，但这不是当前构建主线的阻塞项。
+- 已脱主线旧模块已移动到 `archive/legacy/`
+- `Drivers/LineTracker` 仍保留在主目录，因为当前新的 `line_sensor` 设备层还在直接复用它
+- 当前主线任务文件保留在 `Sources/tasks/`：
+  - `sensor_task.*`
+  - `control_task.*`
+  - `mode_debug_task.*`
 
 ### 调试增强
 

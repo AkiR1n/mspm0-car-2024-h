@@ -8,6 +8,8 @@
 - 电机驱动、编码器驱动、MPU6050 驱动已可在板上工作
 - 轮子/编码器开环扫速测试已完成，结果见：
   [WHEEL_SPEED_SWEEP_RESULTS.md](/home/aki/workspace_ccstheia/mspm0-school-2026/WHEEL_SPEED_SWEEP_RESULTS.md:1)
+- 已脱主线的旧驱动与旧任务现已移动到：
+  [archive/legacy](/home/aki/workspace_ccstheia/mspm0-school-2026/archive/legacy:1)
 
 ## 1. 当前结论
 
@@ -213,7 +215,8 @@
 已完成：
 
 - 新主线已经不再依赖旧 `motion_task`
-- 旧 `MotionV2` 和 `Motor_Encoder_PID` 仍保留在仓库中作为参考
+- 旧 `MotionV2`、`Motor_Encoder_PID`、`K230_UART`、`Gimbal`、`Servo` 已移动到 `archive/legacy/`
+- 旧 `motion/imu/oled/log/pid/k230_rx/strategy` 任务已移动到 `archive/legacy/Sources/tasks/`
 - 默认构建已切换到新主线
 
 当前判断：
@@ -264,6 +267,7 @@
 
 - `line_sensor` 设备已纳入新系统
 - 当前设备输入可读
+- 当前仍直接复用 `Drivers/LineTracker`，因此它还不属于本次可归档范围
 
 当前结论：
 
