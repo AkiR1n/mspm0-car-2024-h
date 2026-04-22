@@ -3,7 +3,7 @@
 
 int uart_printf(const char *fmt, ...)
 {
-    static char buf[128];
+    static char buf[256];
     uint32_t i, len;
     va_list args;
 

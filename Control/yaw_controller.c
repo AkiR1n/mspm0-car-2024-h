@@ -1,12 +1,24 @@
 #include "yaw_controller.h"
 
-void YawController_Init(yaw_controller_t *controller, float kp, float ki, float kd)
+void YawController_Init(yaw_controller_t *controller,
+                        const pid_config_t *pid_cfg,
+                        float rate_ff_gain)
 {
-    if (controller == NULL) {
+    if ((controller == NULL) || (pid_cfg == NULL)) {
         return;
     }
 
-    Pid_Init(&controller->pid, kp, ki, kd, -6.0f, 6.0f, -2.0f, 2.0f);
+    Pid_Init(&controller->pid, pid_cfg);
+    controller->rate_ff_gain = rate_ff_gain;
+}
+
+void YawController_SetPidConfig(yaw_controller_t *controller, const pid_config_t *pid_cfg)
+{
+    if ((controller == NULL) || (pid_cfg == NULL)) {
+        return;
+    }
+
+    Pid_SetConfig(&controller->pid, pid_cfg);
 }
 
 float YawController_Update(yaw_controller_t *controller,
@@ -22,7 +34,7 @@ float YawController_Update(yaw_controller_t *controller,
     }
 
     if (current_gyro_z > 1e-4f || current_gyro_z < -1e-4f) {
-        rate_ff = -current_gyro_z * 0.0005f;
+        rate_ff = -current_gyro_z * controller->rate_ff_gain;
     }
     return Pid_Update(&controller->pid, target_yaw_deg, current_yaw_deg, dt_s) + rate_ff;
 }

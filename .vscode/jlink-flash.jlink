@@ -1,0 +1,9 @@
+si SWD
+speed 4000
+device MSPM0G3507
+r
+halt
+loadfile build/mspm0_school_2026.elf
+r
+g
+exit

@@ -1,12 +1,21 @@
 #include "line_controller.h"
 
-void LineController_Init(line_controller_t *controller, float kp, float ki, float kd)
+void LineController_Init(line_controller_t *controller, const pid_config_t *pid_cfg)
 {
-    if (controller == NULL) {
+    if ((controller == NULL) || (pid_cfg == NULL)) {
         return;
     }
 
-    Pid_Init(&controller->pid, kp, ki, kd, -6.0f, 6.0f, -2.0f, 2.0f);
+    Pid_Init(&controller->pid, pid_cfg);
+}
+
+void LineController_SetPidConfig(line_controller_t *controller, const pid_config_t *pid_cfg)
+{
+    if ((controller == NULL) || (pid_cfg == NULL)) {
+        return;
+    }
+
+    Pid_SetConfig(&controller->pid, pid_cfg);
 }
 
 float LineController_Update(line_controller_t *controller,

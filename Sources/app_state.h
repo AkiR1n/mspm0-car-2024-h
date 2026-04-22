@@ -34,6 +34,8 @@ typedef struct {
     float   w_radps;
     float   left_duty;
     float   right_duty;
+    float   left_speed_mps;
+    float   right_speed_mps;
 } chassis_command_t;
 
 typedef struct {
@@ -49,6 +51,7 @@ typedef enum {
     APP_MODE_STOP = 0,
     APP_MODE_TWIST_OPEN = 1,
     APP_MODE_WHEEL_TEST = 2,
+    APP_MODE_WHEEL_SPEED_TEST = 3,
 } app_mode_t;
 
 typedef struct {

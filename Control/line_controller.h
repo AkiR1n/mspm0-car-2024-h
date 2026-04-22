@@ -7,10 +7,11 @@
 #include "pid.h"
 
 typedef struct {
-    pid_t pid;
+    pid_controller_t pid;
 } line_controller_t;
 
-void LineController_Init(line_controller_t *controller, float kp, float ki, float kd);
+void LineController_Init(line_controller_t *controller, const pid_config_t *pid_cfg);
+void LineController_SetPidConfig(line_controller_t *controller, const pid_config_t *pid_cfg);
 float LineController_Update(line_controller_t *controller,
                             float line_error,
                             uint8_t bits,

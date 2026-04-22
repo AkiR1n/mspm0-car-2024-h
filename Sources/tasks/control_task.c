@@ -37,6 +37,22 @@ void control_task(void *arg)
             Chassis_Stop(chassis);
             Motor_Stop(left_motor);
             Motor_Stop(right_motor);
+        } else if (app_state_get_mode() == APP_MODE_WHEEL_SPEED_TEST) {
+            if (command.enable_closed_loop == 0u) {
+                Chassis_Stop(chassis);
+                debug.left_target_mps = 0.0f;
+                debug.right_target_mps = 0.0f;
+                debug.left_measured_mps = feedback.left_speed_mps;
+                debug.right_measured_mps = feedback.right_speed_mps;
+                debug.left_motor_duty = 0.0f;
+                debug.right_motor_duty = 0.0f;
+            } else {
+                Chassis_SetWheelSpeed(chassis, command.left_speed_mps, command.right_speed_mps);
+                Chassis_ControlStep(chassis, (float)CONTROL_TASK_PERIOD_MS / 1000.0f, &debug);
+            }
+            app_state_set_debug(&debug);
+            vTaskDelayUntil(&next, pdMS_TO_TICKS(CONTROL_TASK_PERIOD_MS));
+            continue;
         } else if (app_state_get_mode() == APP_MODE_WHEEL_TEST) {
             Motor_SetDuty(left_motor, command.left_duty);
             Motor_SetDuty(right_motor, command.right_duty);
