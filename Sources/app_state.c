@@ -15,6 +15,8 @@ void app_state_init(void)
     s_state.command.enable_closed_loop = 1u;
     s_state.command.v_mps = 0.0f;
     s_state.command.w_radps = 0.0f;
+    s_state.command.left_duty = 0.0f;
+    s_state.command.right_duty = 0.0f;
     taskEXIT_CRITICAL();
 }
 
@@ -115,6 +117,8 @@ void app_state_get_snapshot(app_state_snapshot_t *snapshot)
 const char *app_mode_name(app_mode_t mode)
 {
     switch (mode) {
+    case APP_MODE_WHEEL_TEST:
+        return "WHEEL";
     case APP_MODE_TWIST_OPEN:
         return "TWIST";
     case APP_MODE_STOP:

@@ -32,6 +32,8 @@ typedef struct {
     uint8_t enable_closed_loop;
     float   v_mps;
     float   w_radps;
+    float   left_duty;
+    float   right_duty;
 } chassis_command_t;
 
 typedef struct {
@@ -46,6 +48,7 @@ typedef struct {
 typedef enum {
     APP_MODE_STOP = 0,
     APP_MODE_TWIST_OPEN = 1,
+    APP_MODE_WHEEL_TEST = 2,
 } app_mode_t;
 
 typedef struct {

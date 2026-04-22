@@ -70,6 +70,16 @@ chassis_t *chassis_system_get_chassis(void)
     return &s_chassis;
 }
 
+motor_t *chassis_system_get_left_motor(void)
+{
+    return &s_left_motor;
+}
+
+motor_t *chassis_system_get_right_motor(void)
+{
+    return &s_right_motor;
+}
+
 encoder_t *chassis_system_get_left_encoder(void)
 {
     return &s_left_encoder;

@@ -21,6 +21,8 @@ include_directories(
 set(APP_SOURCES
     ./Sources/main.c
     ./Sources/sysmem.c
+    ./Sources/runtime_stats.c
+    ./Sources/uart_rx.c
     ./Sources/uart_printf.c
     ./Sources/app_state.c
     ./Sources/chassis_system.c

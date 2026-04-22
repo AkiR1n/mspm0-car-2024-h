@@ -1,6 +1,7 @@
 #include "ti_msp_dl_config.h"
 #include "interrupt.h"
 #include "encoder_drv.h"
+#include "uart_rx.h"
 
 /*
  * FreeRTOS SysTick 由 port 层接管；应用侧只保留 motion-v2 必需的编码器 ISR。
@@ -32,3 +33,8 @@ void TIMA1_IRQHandler(void)
     Encoder_OnSampleTick();
 }
 #endif
+
+void UART0_IRQHandler(void)
+{
+    uart_rx_irq_handler();
+}

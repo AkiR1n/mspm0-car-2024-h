@@ -6,11 +6,14 @@
 #include "imu_drv.h"
 #include "line_controller.h"
 #include "line_sensor.h"
+#include "motor_drv.h"
 #include "wheel.h"
 #include "yaw_controller.h"
 
 void chassis_system_init(void);
 chassis_t *chassis_system_get_chassis(void);
+motor_t *chassis_system_get_left_motor(void);
+motor_t *chassis_system_get_right_motor(void);
 encoder_t *chassis_system_get_left_encoder(void);
 encoder_t *chassis_system_get_right_encoder(void);
 imu_t *chassis_system_get_imu(void);
