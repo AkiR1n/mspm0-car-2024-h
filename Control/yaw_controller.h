@@ -13,6 +13,7 @@ typedef struct {
 void YawController_Init(yaw_controller_t *controller,
                         const pid_config_t *pid_cfg,
                         float rate_ff_gain);
+void YawController_Reset(yaw_controller_t *controller);
 void YawController_SetPidConfig(yaw_controller_t *controller, const pid_config_t *pid_cfg);
 float YawController_Update(yaw_controller_t *controller,
                            float target_yaw_deg,

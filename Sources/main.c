@@ -6,6 +6,7 @@
 #include "app_state.h"
 #include "control_task.h"
 #include "main_task.h"
+#include "oled_task.h"
 #include "sensor_task.h"
 #include "test_task.h"
 
@@ -36,8 +37,9 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
  * 新主线：
  *   sensor_task     10 ms 采集编码器/IMU/循迹快照
  *   control_task    10 ms 执行双轮速度闭环与 Twist(v,w) 差速解算
- *   main_task       50 ms 题目主流程入口
+ *   main_task       10 ms 题目主流程入口
  *   test_task       50 ms 测试、调参、串口调试入口
+ *   oled_task      100 ms 显示当前题目/阶段/姿态
  */
 int main(void)
 {
@@ -48,6 +50,7 @@ int main(void)
     create_task_or_halt(control_task, "control", 512, 5);
     create_task_or_halt(main_task,    "main",    512, 3);
     create_task_or_halt(test_task,    "test",    512, 2);
+    create_task_or_halt(oled_task,    "oled",    384, 1);
 
     vTaskStartScheduler();
     uart_printf("\r\n!!! vTaskStartScheduler returned !!!\r\n");

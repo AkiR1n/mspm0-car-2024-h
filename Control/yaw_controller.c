@@ -12,6 +12,15 @@ void YawController_Init(yaw_controller_t *controller,
     controller->rate_ff_gain = rate_ff_gain;
 }
 
+void YawController_Reset(yaw_controller_t *controller)
+{
+    if (controller == NULL) {
+        return;
+    }
+
+    Pid_Reset(&controller->pid);
+}
+
 void YawController_SetPidConfig(yaw_controller_t *controller, const pid_config_t *pid_cfg)
 {
     if ((controller == NULL) || (pid_cfg == NULL)) {

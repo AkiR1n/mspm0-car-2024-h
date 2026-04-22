@@ -10,6 +10,17 @@
 #include "uart_printf.h"
 
 #define SENSOR_TASK_PERIOD_MS  10U
+#define SENSOR_TASK_ENABLE_IMU 1U
+
+static const imu_cfg_t k_main_imu_cfg = {
+    .auto_calibration = 0u,
+    .warmup_ms = 1200u,
+    .stable_gyro_threshold = 2.0f,
+    .stable_hold_ms = 300u,
+    .estimate_gyro_bias = 1u,
+    .apply_dmp_bias = 0u,
+    .zero_yaw_on_stable = 1u,
+};
 
 void sensor_task(void *arg)
 {
@@ -35,12 +46,13 @@ void sensor_task(void *arg)
     for (;;) {
         chassis_feedback_t feedback;
 
+#if SENSOR_TASK_ENABLE_IMU
         if (imu_initialized == 0u) {
             TickType_t now = xTaskGetTickCount();
 
             if ((retry_count == 0u) ||
                 ((now - last_retry_tick) >= pdMS_TO_TICKS(1000))) {
-                if (Imu_Init(imu, NULL) == 0) {
+                if (Imu_Init(imu, &k_main_imu_cfg) == 0) {
                     imu_initialized = 1u;
                     retry_count = 0u;
                     uart_printf("sensor: imu init ok\r\n");
@@ -57,6 +69,24 @@ void sensor_task(void *arg)
                 imu_initialized = 0u;
             }
         }
+#else
+        (void)last_retry_tick;
+        (void)retry_count;
+        (void)imu_initialized;
+        imu->ready = 0u;
+        imu->stable = 0u;
+        imu->yaw_deg = 0.0f;
+        imu->gyro_z = 0.0f;
+        imu->pitch_deg = 0.0f;
+        imu->roll_deg = 0.0f;
+        imu->accel_x = 0.0f;
+        imu->accel_y = 0.0f;
+        imu->accel_z = 0.0f;
+        imu->gyro_x = 0.0f;
+        imu->gyro_y = 0.0f;
+        imu->uptime_ms = 0u;
+        imu->stable_ms = 0u;
+#endif
 
         LineSensor_Refresh(line_sensor);
 

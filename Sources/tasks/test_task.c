@@ -23,6 +23,20 @@
 #define MODE_AUTO_PHASE_SIZE         32U
 #define MODE_REPORT_PERIOD_MS        50U
 #define MODE_DUTY_SCALE              0.01f
+#define MODE_KEY_COUNT               2U
+#define MODE_KEY_DEBOUNCE_SAMPLES    2U
+
+typedef struct {
+    GPIO_Regs *port;
+    uint32_t   pin;
+    const char *name;
+} mode_key_desc_t;
+
+typedef struct {
+    uint8_t raw_pressed;
+    uint8_t stable_pressed;
+    uint8_t same_count;
+} mode_key_state_t;
 
 typedef struct {
     char     rx_line[MODE_CMD_BUFFER_SIZE];
@@ -30,8 +44,15 @@ typedef struct {
     char     auto_phase[MODE_AUTO_PHASE_SIZE];
     uint32_t last_report_tick_ms;
     uint32_t last_irq_count;
+    uint32_t last_event_seq_seen;
     uint8_t  auto_stream_enabled;
+    mode_key_state_t keys[MODE_KEY_COUNT];
 } test_task_ctx_t;
+
+static const mode_key_desc_t k_mode_keys[MODE_KEY_COUNT] = {
+    {GPIO_Switch_Key_1_PORT, GPIO_Switch_Key_1_PIN, "key1"},
+    {GPIO_Switch_Key_2_PORT, GPIO_Switch_Key_2_PIN, "key2"},
+};
 
 static void format_line_bits(uint8_t bits, char out[8])
 {
@@ -42,8 +63,7 @@ static void format_line_bits(uint8_t bits, char out[8])
     }
 
     for (i = 0u; i < 7u; ++i) {
-        uint8_t bit_index = (uint8_t)(6u - i);
-        out[i] = ((bits & (1u << bit_index)) != 0u) ? '1' : '0';
+        out[i] = ((bits & (1u << i)) != 0u) ? '1' : '0';
     }
     out[7] = '\0';
 }
@@ -160,9 +180,52 @@ static bool parse_float_pair(const char *text, float *left, float *right)
     return true;
 }
 
+static void clear_challenge_runtime(app_challenge_info_t *challenge,
+                                    app_challenge_status_t status,
+                                    uint8_t clear_events)
+{
+    if (challenge == NULL) {
+        return;
+    }
+
+    challenge->active = APP_CHALLENGE_NONE;
+    challenge->status = status;
+    challenge->phase = APP_CHALLENGE_PHASE_IDLE;
+    challenge->action = APP_PHASE_ACTION_NONE;
+    challenge->checkpoint_count = 0u;
+    challenge->lap_total = app_challenge_lap_total(challenge->selected);
+    challenge->lap_index = (challenge->lap_total != 0u) ? 1u : 0u;
+    challenge->geometry_heading_deg = 0.0f;
+    challenge->hold_heading_deg = 0.0f;
+    challenge->heading_error_deg = 0.0f;
+    challenge->phase_distance_m = 0.0f;
+    challenge->target_speed_mps = 0.0f;
+
+    if (clear_events != 0u) {
+        challenge->last_event = APP_EVENT_NONE;
+        challenge->last_event_ms = 0u;
+        challenge->event_seq = 0u;
+    }
+}
+
 static void apply_stop_command(void)
 {
+    app_challenge_info_t challenge;
     chassis_command_t command = {0};
+    uint8_t should_emit_stop = 0u;
+
+    app_state_get_challenge(&challenge);
+    should_emit_stop = (uint8_t)((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
+                                 (challenge.status == APP_CHALLENGE_STATUS_RUNNING));
+    clear_challenge_runtime(&challenge, APP_CHALLENGE_STATUS_READY, 0u);
+
+    if (should_emit_stop != 0u) {
+        app_state_emit_event(APP_EVENT_STOP);
+        app_state_get_challenge(&challenge);
+        clear_challenge_runtime(&challenge, APP_CHALLENGE_STATUS_READY, 0u);
+    }
+
+    app_state_set_challenge(&challenge);
 
     command.stop = 1u;
     command.enable_closed_loop = 0u;
@@ -178,6 +241,46 @@ static void apply_main_command(void)
     command.enable_closed_loop = 0u;
     app_state_set_mode(APP_MODE_MAIN);
     app_state_set_command(&command);
+}
+
+static void select_challenge(app_challenge_t challenge_id)
+{
+    app_challenge_info_t challenge;
+
+    app_state_get_challenge(&challenge);
+    challenge.selected = challenge_id;
+    clear_challenge_runtime(&challenge, APP_CHALLENGE_STATUS_READY, 1u);
+    app_state_set_challenge(&challenge);
+}
+
+static bool start_selected_challenge(void)
+{
+    app_challenge_info_t challenge;
+
+    app_state_get_challenge(&challenge);
+
+    if (challenge.selected == APP_CHALLENGE_NONE) {
+        return false;
+    }
+
+    challenge.active = challenge.selected;
+    challenge.status = APP_CHALLENGE_STATUS_ALIGN;
+    challenge.phase = APP_CHALLENGE_PHASE_IDLE;
+    challenge.action = APP_PHASE_ACTION_NONE;
+    challenge.checkpoint_count = 0u;
+    challenge.lap_total = app_challenge_lap_total(challenge.selected);
+    challenge.lap_index = (challenge.lap_total != 0u) ? 1u : 0u;
+    challenge.geometry_heading_deg = 0.0f;
+    challenge.hold_heading_deg = 0.0f;
+    challenge.heading_error_deg = 0.0f;
+    challenge.phase_distance_m = 0.0f;
+    challenge.target_speed_mps = 0.0f;
+    challenge.last_event = APP_EVENT_NONE;
+    challenge.last_event_ms = 0u;
+    challenge.event_seq = 0u;
+    app_state_set_challenge(&challenge);
+    apply_main_command();
+    return true;
 }
 
 static void apply_wheel_duty_command(float left_percent, float right_percent)
@@ -452,9 +555,22 @@ static void emit_human_status(uint32_t irq_per_s)
         break;
     case APP_MODE_MAIN:
         uart_printf(
-            "mode=%s state=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s q=%s/%s ph=%s act=%s lap=%u/%u cp=%u evt=%s@%lu state=%s hdg=(%.1f,%.1f,%.1f) dist=%.3f vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
+            app_challenge_name(snapshot.challenge.selected),
+            app_challenge_status_name(snapshot.challenge.status),
+            app_challenge_phase_name(snapshot.challenge.phase),
+            app_phase_action_name(snapshot.challenge.action),
+            (unsigned)snapshot.challenge.lap_index,
+            (unsigned)snapshot.challenge.lap_total,
+            (unsigned)snapshot.challenge.checkpoint_count,
+            app_event_name(snapshot.challenge.last_event),
+            (unsigned long)snapshot.challenge.last_event_ms,
             app_main_state_name(snapshot.main_state),
+            snapshot.challenge.geometry_heading_deg,
+            snapshot.challenge.hold_heading_deg,
+            snapshot.challenge.heading_error_deg,
+            snapshot.challenge.phase_distance_m,
             snapshot.command.v_mps,
             snapshot.command.w_radps,
             snapshot.debug.left_target_mps,
@@ -463,8 +579,6 @@ static void emit_human_status(uint32_t irq_per_s)
             snapshot.feedback.right_speed_mps,
             snapshot.debug.left_motor_duty,
             snapshot.debug.right_motor_duty,
-            (long)snapshot.feedback.left_count,
-            (long)snapshot.feedback.right_count,
             line_text,
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
@@ -492,9 +606,126 @@ static void emit_human_status(uint32_t irq_per_s)
     }
 }
 
+static void emit_event_if_changed(test_task_ctx_t *ctx)
+{
+    app_challenge_info_t challenge;
+
+    if (ctx == NULL) {
+        return;
+    }
+
+    app_state_get_challenge(&challenge);
+    if (challenge.event_seq < ctx->last_event_seq_seen) {
+        ctx->last_event_seq_seen = challenge.event_seq;
+        return;
+    }
+    if ((challenge.event_seq == 0u) ||
+        (challenge.event_seq == ctx->last_event_seq_seen) ||
+        (challenge.last_event == APP_EVENT_NONE)) {
+        return;
+    }
+
+    ctx->last_event_seq_seen = challenge.event_seq;
+    uart_printf("event=%s t=%lu q=%s ph=%s lap=%u/%u\r\n",
+                app_event_name(challenge.last_event),
+                (unsigned long)challenge.last_event_ms,
+                app_challenge_name(challenge.selected),
+                app_challenge_phase_name(challenge.phase),
+                (unsigned)challenge.lap_index,
+                (unsigned)challenge.lap_total);
+}
+
 static uint8_t read_gpio_level(GPIO_Regs *port, uint32_t pin)
 {
     return (DL_GPIO_readPins(port, pin) != 0u) ? 1u : 0u;
+}
+
+static uint8_t read_switch_pressed(const mode_key_desc_t *key)
+{
+    if (key == NULL) {
+        return 0u;
+    }
+
+    return (DL_GPIO_readPins(key->port, key->pin) == 0u) ? 1u : 0u;
+}
+
+static void handle_key_press(test_task_ctx_t *ctx, uint8_t key_index)
+{
+    app_challenge_info_t challenge;
+
+    (void)ctx;
+
+    app_state_get_challenge(&challenge);
+
+    if (key_index == 0u) {
+        if ((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
+            (challenge.status == APP_CHALLENGE_STATUS_RUNNING)) {
+            uart_printf("%s busy=%s\r\n",
+                        k_mode_keys[key_index].name,
+                        app_challenge_name(challenge.active));
+            return;
+        }
+
+        if (challenge.selected == APP_CHALLENGE_Q1) {
+            select_challenge(APP_CHALLENGE_Q2);
+        } else if (challenge.selected == APP_CHALLENGE_Q2) {
+            select_challenge(APP_CHALLENGE_Q3);
+        } else if (challenge.selected == APP_CHALLENGE_Q3) {
+            select_challenge(APP_CHALLENGE_Q4);
+        } else {
+            select_challenge(APP_CHALLENGE_Q1);
+        }
+
+        app_state_get_challenge(&challenge);
+        uart_printf("%s select=%s\r\n",
+                    k_mode_keys[key_index].name,
+                    app_challenge_name(challenge.selected));
+        return;
+    }
+
+    if (key_index == 1u) {
+        if ((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
+            (challenge.status == APP_CHALLENGE_STATUS_RUNNING)) {
+            apply_stop_command();
+            uart_printf("%s stop\r\n", k_mode_keys[key_index].name);
+        } else if (start_selected_challenge()) {
+            app_state_get_challenge(&challenge);
+            uart_printf("%s run=%s\r\n",
+                        k_mode_keys[key_index].name,
+                        app_challenge_name(challenge.active));
+        } else {
+            uart_printf("%s start blocked: sel=%s\r\n",
+                        k_mode_keys[key_index].name,
+                        app_challenge_name(challenge.selected));
+        }
+    }
+}
+
+static void poll_keys(test_task_ctx_t *ctx)
+{
+    uint8_t i;
+
+    for (i = 0u; i < MODE_KEY_COUNT; ++i) {
+        uint8_t pressed = read_switch_pressed(&k_mode_keys[i]);
+        mode_key_state_t *state = &ctx->keys[i];
+
+        if (pressed == state->raw_pressed) {
+            if (state->same_count < 0xFFu) {
+                ++state->same_count;
+            }
+        } else {
+            state->raw_pressed = pressed;
+            state->same_count = 1u;
+        }
+
+        if ((state->same_count >= MODE_KEY_DEBOUNCE_SAMPLES) &&
+            (state->stable_pressed != state->raw_pressed)) {
+            state->stable_pressed = state->raw_pressed;
+            if (state->stable_pressed != 0u) {
+                handle_key_press(ctx, i);
+            }
+        }
+    }
 }
 
 static void print_line_config(void)
@@ -548,7 +779,8 @@ static void print_line_raw_status(void)
 static void print_help(void)
 {
     uart_printf("test task ready\r\n");
-    uart_printf("cmd: <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop\r\n");
+    uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -764,9 +996,37 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
         uart_printf("cmd=stop\r\n");
         return;
     }
-    if (strcmp(line, "main") == 0) {
-        apply_main_command();
-        uart_printf("cmd=main\r\n");
+    if (strcmp(line, "q1") == 0) {
+        select_challenge(APP_CHALLENGE_Q1);
+        uart_printf("challenge=%s\r\n", app_challenge_name(APP_CHALLENGE_Q1));
+        return;
+    }
+    if (strcmp(line, "q2") == 0) {
+        select_challenge(APP_CHALLENGE_Q2);
+        uart_printf("challenge=%s\r\n", app_challenge_name(APP_CHALLENGE_Q2));
+        return;
+    }
+    if (strcmp(line, "q3") == 0) {
+        select_challenge(APP_CHALLENGE_Q3);
+        uart_printf("challenge=%s\r\n", app_challenge_name(APP_CHALLENGE_Q3));
+        return;
+    }
+    if (strcmp(line, "q4") == 0) {
+        select_challenge(APP_CHALLENGE_Q4);
+        uart_printf("challenge=%s\r\n", app_challenge_name(APP_CHALLENGE_Q4));
+        return;
+    }
+    if ((strcmp(line, "run") == 0) || (strcmp(line, "main") == 0)) {
+        if (start_selected_challenge()) {
+            app_challenge_info_t challenge;
+            app_state_get_challenge(&challenge);
+            uart_printf("cmd=run %s\r\n", app_challenge_name(challenge.active));
+        } else {
+            app_challenge_info_t challenge;
+            app_state_get_challenge(&challenge);
+            uart_printf("run blocked sel=%s\r\n",
+                        app_challenge_name(challenge.selected));
+        }
         return;
     }
     if (strncmp(line, "linepol,", 8) == 0) {
@@ -901,7 +1161,9 @@ void test_task(void *arg)
     print_help();
 
     for (;;) {
+        poll_keys(&ctx);
         poll_uart(&ctx);
+        emit_event_if_changed(&ctx);
 
         now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         if ((now_ms - ctx.last_report_tick_ms) >= MODE_REPORT_PERIOD_MS) {

@@ -74,14 +74,14 @@ void chassis_system_init(void)
         .mode = PID_MODE_POSITIONAL,
     };
     const pid_config_t line_pid_cfg = {
-        .kp = 0.08f,
+        .kp = 0.067f,
         .ki = 0.0f,
-        .kd = 0.001f,
-        .out_min = -6.0f,
-        .out_max = 6.0f,
+        .kd = 0.0004f,
+        .out_min = -2.6f,
+        .out_max = 2.6f,
         .integral_min = -2.0f,
         .integral_max = 2.0f,
-        .d_filter_alpha = 0.90f,
+        .d_filter_alpha = 0.92f,
         .anti_windup_enable = 1u,
         .mode = PID_MODE_POSITIONAL,
     };

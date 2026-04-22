@@ -25,11 +25,13 @@ set(APP_SOURCES
     ./Sources/uart_rx.c
     ./Sources/uart_printf.c
     ./Sources/app_state.c
+    ./Sources/signal_driver.c
     ./Sources/chassis_system.c
     ./Sources/tasks/sensor_task.c
     ./Sources/tasks/control_task.c
     ./Sources/tasks/main_task.c
     ./Sources/tasks/test_task.c
+    ./Sources/tasks/oled_task.c
 )
 file(GLOB MSPM0_SUPPORT_SOURCES "./Drivers/MSPM0/*.c")
 file(GLOB HAL_SOURCES "./Drivers/Hal/*.c")
