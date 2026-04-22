@@ -25,6 +25,7 @@ typedef struct {
     uint32_t imu_stable_ms;
     uint8_t  line_bits;
     uint8_t  line_detected;
+    int16_t  line_position;
 } chassis_feedback_t;
 
 typedef struct {
@@ -52,10 +53,19 @@ typedef enum {
     APP_MODE_TWIST_OPEN = 1,
     APP_MODE_WHEEL_TEST = 2,
     APP_MODE_WHEEL_SPEED_TEST = 3,
+    APP_MODE_MAIN = 4,
 } app_mode_t;
+
+typedef enum {
+    APP_MAIN_STATE_IDLE = 0,
+    APP_MAIN_STATE_TRACK,
+    APP_MAIN_STATE_LOST_LEFT,
+    APP_MAIN_STATE_LOST_RIGHT,
+} app_main_state_t;
 
 typedef struct {
     app_mode_t          mode;
+    app_main_state_t    main_state;
     chassis_feedback_t  feedback;
     chassis_command_t   command;
     chassis_debug_t     debug;
@@ -64,6 +74,8 @@ typedef struct {
 void app_state_init(void);
 void app_state_set_mode(app_mode_t mode);
 app_mode_t app_state_get_mode(void);
+void app_state_set_main_state(app_main_state_t state);
+app_main_state_t app_state_get_main_state(void);
 void app_state_set_feedback(const chassis_feedback_t *feedback);
 void app_state_get_feedback(chassis_feedback_t *feedback);
 void app_state_set_command(const chassis_command_t *command);
@@ -72,5 +84,6 @@ void app_state_set_debug(const chassis_debug_t *debug);
 void app_state_get_debug(chassis_debug_t *debug);
 void app_state_get_snapshot(app_state_snapshot_t *snapshot);
 const char *app_mode_name(app_mode_t mode);
+const char *app_main_state_name(app_main_state_t state);
 
 #endif

@@ -8,7 +8,6 @@
 typedef struct {
     pid_config_t speed_pid;
     float        speed_ff_gain;
-    float        duty_polarity;
 } wheel_cfg_t;
 
 typedef struct {

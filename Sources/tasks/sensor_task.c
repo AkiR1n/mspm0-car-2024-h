@@ -80,6 +80,7 @@ void sensor_task(void *arg)
         feedback.imu_stable_ms = imu->stable_ms;
         feedback.line_bits = line_sensor->bits;
         feedback.line_detected = line_sensor->detected;
+        feedback.line_position = line_sensor->position;
         app_state_set_feedback(&feedback);
 
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SENSOR_TASK_PERIOD_MS));

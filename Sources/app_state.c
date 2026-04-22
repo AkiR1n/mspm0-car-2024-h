@@ -11,6 +11,7 @@ void app_state_init(void)
 {
     taskENTER_CRITICAL();
     s_state.mode = APP_MODE_STOP;
+    s_state.main_state = APP_MAIN_STATE_IDLE;
     s_state.command.stop = 1u;
     s_state.command.enable_closed_loop = 1u;
     s_state.command.v_mps = 0.0f;
@@ -37,6 +38,23 @@ app_mode_t app_state_get_mode(void)
     mode = s_state.mode;
     taskEXIT_CRITICAL();
     return mode;
+}
+
+void app_state_set_main_state(app_main_state_t state)
+{
+    taskENTER_CRITICAL();
+    s_state.main_state = state;
+    taskEXIT_CRITICAL();
+}
+
+app_main_state_t app_state_get_main_state(void)
+{
+    app_main_state_t state;
+
+    taskENTER_CRITICAL();
+    state = s_state.main_state;
+    taskEXIT_CRITICAL();
+    return state;
 }
 
 void app_state_set_feedback(const chassis_feedback_t *feedback)
@@ -119,6 +137,8 @@ void app_state_get_snapshot(app_state_snapshot_t *snapshot)
 const char *app_mode_name(app_mode_t mode)
 {
     switch (mode) {
+    case APP_MODE_MAIN:
+        return "MAIN";
     case APP_MODE_WHEEL_SPEED_TEST:
         return "WSPD";
     case APP_MODE_WHEEL_TEST:
@@ -128,5 +148,20 @@ const char *app_mode_name(app_mode_t mode)
     case APP_MODE_STOP:
     default:
         return "STOP";
+    }
+}
+
+const char *app_main_state_name(app_main_state_t state)
+{
+    switch (state) {
+    case APP_MAIN_STATE_TRACK:
+        return "TRACK";
+    case APP_MAIN_STATE_LOST_LEFT:
+        return "LOST_LEFT";
+    case APP_MAIN_STATE_LOST_RIGHT:
+        return "LOST_RIGHT";
+    case APP_MAIN_STATE_IDLE:
+    default:
+        return "IDLE";
     }
 }

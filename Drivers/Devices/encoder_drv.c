@@ -13,6 +13,10 @@ void Encoder_Init(encoder_t *encoder, const encoder_cfg_t *cfg)
     EncoderHal_Init();
 
     encoder->cfg = *cfg;
+    if ((encoder->cfg.direction_sign > -1e-6f) &&
+        (encoder->cfg.direction_sign < 1e-6f)) {
+        encoder->cfg.direction_sign = 1.0f;
+    }
     encoder->last_count = 0;
     encoder->count = 0;
     encoder->speed_rps = 0.0f;
@@ -31,6 +35,7 @@ void Encoder_OnSampleTick(void)
 
     for (uint32_t i = 0; i < 2u; ++i) {
         float diff_count;
+        float logical_count;
         float circumference_m;
         encoder_t *encoder = s_encoders[i];
 
@@ -39,8 +44,10 @@ void Encoder_OnSampleTick(void)
         }
 
         encoder->count = EncoderHal_GetCount(encoder->cfg.hal_id);
-        diff_count = (float)(encoder->count - encoder->last_count);
-        encoder->last_count = encoder->count;
+        logical_count = (float)encoder->count * encoder->cfg.direction_sign;
+        diff_count = logical_count - (float)encoder->last_count;
+        encoder->last_count = (int32_t)logical_count;
+        encoder->count = (int32_t)logical_count;
 
         if ((encoder->cfg.pulses_per_revolution == 0u) ||
             (encoder->cfg.sample_period_s <= 0.0f)) {

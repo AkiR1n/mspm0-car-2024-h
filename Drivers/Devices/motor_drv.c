@@ -19,20 +19,27 @@ void Motor_Init(motor_t *motor, const motor_cfg_t *cfg)
 
     MotorHal_Init();
     motor->cfg = *cfg;
+    if ((motor->cfg.direction_sign > -1e-6f) &&
+        (motor->cfg.direction_sign < 1e-6f)) {
+        motor->cfg.direction_sign = 1.0f;
+    }
     motor->applied_duty = 0.0f;
     Motor_Stop(motor);
 }
 
 void Motor_SetDuty(motor_t *motor, float duty)
 {
+    float logical_duty;
+    float physical_duty;
     float magnitude;
 
     if (motor == NULL) {
         return;
     }
 
-    duty = clampf(duty, -1.0f, 1.0f);
-    magnitude = (duty >= 0.0f) ? duty : -duty;
+    logical_duty = clampf(duty, -1.0f, 1.0f);
+    physical_duty = logical_duty * motor->cfg.direction_sign;
+    magnitude = (physical_duty >= 0.0f) ? physical_duty : -physical_duty;
 
     if (magnitude < 1e-6f) {
         Motor_Stop(motor);
@@ -44,10 +51,10 @@ void Motor_SetDuty(motor_t *motor, float duty)
     }
 
     MotorHal_SetDirection(motor->cfg.hal_id,
-                          (duty >= 0.0f) ? MOTOR_HAL_DIR_FORWARD
-                                         : MOTOR_HAL_DIR_REVERSE);
+                          (physical_duty >= 0.0f) ? MOTOR_HAL_DIR_FORWARD
+                                                   : MOTOR_HAL_DIR_REVERSE);
     MotorHal_SetDuty(motor->cfg.hal_id, magnitude);
-    motor->applied_duty = (duty >= 0.0f) ? magnitude : -magnitude;
+    motor->applied_duty = (logical_duty >= 0.0f) ? magnitude : -magnitude;
 }
 
 void Motor_Stop(motor_t *motor)

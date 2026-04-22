@@ -45,7 +45,6 @@ void chassis_system_init(void)
             .mode = PID_MODE_POSITIONAL,
         },
         .speed_ff_gain = 0.825105f,
-        .duty_polarity = 1.0f,
     };
     const wheel_cfg_t right_wheel_cfg = {
         .speed_pid = {
@@ -61,7 +60,6 @@ void chassis_system_init(void)
             .mode = PID_MODE_POSITIONAL,
         },
         .speed_ff_gain = 0.834652f,
-        .duty_polarity = -1.0f,
     };
     const pid_config_t yaw_pid_cfg = {
         .kp = 0.02f,
@@ -90,22 +88,26 @@ void chassis_system_init(void)
     const motor_cfg_t left_motor_cfg = {
         .hal_id = MOTOR_HAL_LEFT,
         .min_duty = 0.10f,
+        .direction_sign = 1.0f,
     };
     const motor_cfg_t right_motor_cfg = {
         .hal_id = MOTOR_HAL_RIGHT,
         .min_duty = 0.10f,
+        .direction_sign = 1.0f,
     };
     const encoder_cfg_t left_encoder_cfg = {
         .hal_id = ENCODER_HAL_LEFT,
         .pulses_per_revolution = 13u * 28u * 4u,
         .wheel_radius_m = 0.0325f,
         .sample_period_s = 0.01f,
+        .direction_sign = 1.0f,
     };
     const encoder_cfg_t right_encoder_cfg = {
         .hal_id = ENCODER_HAL_RIGHT,
         .pulses_per_revolution = 13u * 28u * 4u,
         .wheel_radius_m = 0.0325f,
         .sample_period_s = 0.01f,
+        .direction_sign = -1.0f,
     };
 
     if (s_initialized) {

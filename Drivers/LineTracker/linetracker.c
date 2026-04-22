@@ -7,10 +7,14 @@
 
 #include "linetracker.h"
 #include <stdio.h>
+#include <strings.h>
 #include <string.h>
 
 // 全局变量定义
 LineTracker_t g_lineTracker;
+static LineSensorLogic_t s_sensor_logic = LINE_SENSOR_BLACK_HIGH_DEFAULT
+    ? LINE_SENSOR_BLACK_HIGH
+    : LINE_SENSOR_BLACK_LOW;
 
 // 传感器权重数组（用于位置计算）
 static const int16_t sensorWeights[LINE_SENSOR_COUNT] = {
@@ -19,31 +23,102 @@ static const int16_t sensorWeights[LINE_SENSOR_COUNT] = {
 };
 
 // 传感器GPIO端口和引脚配置
-static const struct {
-    uint32_t port;
+typedef struct {
+    GPIO_Regs *port;
     uint32_t pin;
-} sensorPins[LINE_SENSOR_COUNT] = {
-    {(uint32_t)GPIO_TRM_PIN_OUT1_PORT, GPIO_TRM_PIN_OUT1_PIN},  // 传感器0 - 最左边
-    {(uint32_t)GPIO_TRM_PIN_OUT2_PORT, GPIO_TRM_PIN_OUT2_PIN},  // 传感器1
-    {(uint32_t)GPIO_TRM_PIN_OUT3_PORT, GPIO_TRM_PIN_OUT3_PIN},  // 传感器2
-    {(uint32_t)GPIO_TRM_PIN_OUT4_PORT, GPIO_TRM_PIN_OUT4_PIN},  // 传感器3 - 中间
-    {(uint32_t)GPIO_TRM_PIN_OUT5_PORT, GPIO_TRM_PIN_OUT5_PIN},  // 传感器4
-    {(uint32_t)GPIO_TRM_PIN_OUT6_PORT, GPIO_TRM_PIN_OUT6_PIN},  // 传感器5
-    {(uint32_t)GPIO_TRM_PIN_OUT7_PORT, GPIO_TRM_PIN_OUT7_PIN}   // 传感器6 - 最右边
+    IOMUX_PINCM iomux;
+    const char *name;
+} line_pin_desc_t;
+
+static const line_pin_desc_t k_default_sensor_pins[LINE_SENSOR_COUNT] = {
+    {GPIO_TRM_PIN_OUT7_PORT, GPIO_TRM_PIN_OUT7_PIN, GPIO_TRM_PIN_OUT7_IOMUX, "pa25"},
+    {GPIO_TRM_PIN_OUT6_PORT, GPIO_TRM_PIN_OUT6_PIN, GPIO_TRM_PIN_OUT6_IOMUX, "pb25"},
+    {GPIO_TRM_PIN_OUT5_PORT, GPIO_TRM_PIN_OUT5_PIN, GPIO_TRM_PIN_OUT5_IOMUX, "pb20"},
+    {GPIO_TRM_PIN_OUT4_PORT, GPIO_TRM_PIN_OUT4_PIN, GPIO_TRM_PIN_OUT4_IOMUX, "pa14"},
+    {GPIO_TRM_PIN_OUT3_PORT, GPIO_TRM_PIN_OUT3_PIN, GPIO_TRM_PIN_OUT3_IOMUX, "pa16"},
+    {GPIO_TRM_PIN_OUT2_PORT, GPIO_TRM_PIN_OUT2_PIN, GPIO_TRM_PIN_OUT2_IOMUX, "pb17"},
+    {GPIO_TRM_PIN_OUT1_PORT, GPIO_TRM_PIN_OUT1_PIN, GPIO_TRM_PIN_OUT1_IOMUX, "pb19"},
 };
+
+static const line_pin_desc_t k_named_pins[] = {
+    {GPIO_TRM_PIN_OUT1_PORT, GPIO_TRM_PIN_OUT1_PIN, GPIO_TRM_PIN_OUT1_IOMUX, "pb19"},
+    {GPIO_TRM_PIN_OUT2_PORT, GPIO_TRM_PIN_OUT2_PIN, GPIO_TRM_PIN_OUT2_IOMUX, "pb17"},
+    {GPIO_TRM_PIN_OUT3_PORT, GPIO_TRM_PIN_OUT3_PIN, GPIO_TRM_PIN_OUT3_IOMUX, "pa16"},
+    {GPIO_TRM_PIN_OUT4_PORT, GPIO_TRM_PIN_OUT4_PIN, GPIO_TRM_PIN_OUT4_IOMUX, "pa14"},
+    {GPIO_TRM_PIN_OUT5_PORT, GPIO_TRM_PIN_OUT5_PIN, GPIO_TRM_PIN_OUT5_IOMUX, "pb20"},
+    {GPIO_TRM_PIN_OUT6_PORT, GPIO_TRM_PIN_OUT6_PIN, GPIO_TRM_PIN_OUT6_IOMUX, "pb25"},
+    {GPIO_TRM_PIN_OUT7_PORT, GPIO_TRM_PIN_OUT7_PIN, GPIO_TRM_PIN_OUT7_IOMUX, "pa25"},
+    {GPIO_Switch_Key_3_PORT, GPIO_Switch_Key_3_PIN, GPIO_Switch_Key_3_IOMUX, "pb18"},
+    {GPIO_LED_PIN_1_PORT, GPIO_LED_PIN_1_PIN, GPIO_LED_PIN_1_IOMUX, "pa15"},
+};
+
+static line_pin_desc_t s_sensor_pins[LINE_SENSOR_COUNT];
+
+static void line_init_pin(const line_pin_desc_t *pin_desc)
+{
+    if (pin_desc == NULL) {
+        return;
+    }
+
+    DL_GPIO_initDigitalInputFeatures(pin_desc->iomux,
+                                     DL_GPIO_INVERSION_DISABLE,
+                                     DL_GPIO_RESISTOR_PULL_UP,
+                                     DL_GPIO_HYSTERESIS_ENABLE,
+                                     DL_GPIO_WAKEUP_DISABLE);
+}
+
+static uint8_t line_read_raw_level(const line_pin_desc_t *pin_desc)
+{
+    uint32_t pin_state;
+
+    if (pin_desc == NULL) {
+        return 0u;
+    }
+
+    pin_state = DL_GPIO_readPins(pin_desc->port, pin_desc->pin);
+    return (pin_state != 0u) ? 1u : 0u;
+}
+
+static const line_pin_desc_t *line_find_named_pin(const char *pin_name)
+{
+    size_t i;
+
+    if (pin_name == NULL) {
+        return NULL;
+    }
+
+    for (i = 0u; i < (sizeof(k_named_pins) / sizeof(k_named_pins[0])); ++i) {
+        if (strcasecmp(pin_name, k_named_pins[i].name) == 0) {
+            return &k_named_pins[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void line_copy_default_mapping(void)
+{
+    memcpy(s_sensor_pins, k_default_sensor_pins, sizeof(s_sensor_pins));
+}
 
 /**
  * @brief 初始化循迹传感器
  */
 void LineTracker_Init(void)
 {
+    uint8_t i;
+
     // 清空数据结构
     memset(&g_lineTracker, 0, sizeof(LineTracker_t));
-    
-    // GPIO已经在ti_msp_dl_config.c中配置，这里只需要确保引脚已经初始化
-    // 传感器引脚配置为输入模式，在SysConfig中已经完成
-    
-    printf("LineTracker: 初始化完成，7路传感器已配置\n");
+    line_copy_default_mapping();
+
+    // 七路模块可能出现开漏/弱驱动或单路悬空，重新施加上拉使空闲态稳定。
+    for (i = 0u; i < LINE_SENSOR_COUNT; ++i) {
+        line_init_pin(&s_sensor_pins[i]);
+    }
+
+    printf("LineTracker: 初始化完成，7路传感器已配置，logic=%s\n",
+           LineTracker_GetSensorLogicName());
 }
 
 /**
@@ -54,22 +129,24 @@ void LineTracker_ReadSensors_Interrupt(void)
     uint8_t i;
     
     // 清空之前的状态
+    g_lineTracker.rawSensorBits = 0;
     g_lineTracker.sensorBits = 0;
     g_lineTracker.activeSensorCount = 0;
     
     // 读取每个传感器的值
     for (i = 0; i < LINE_SENSOR_COUNT; i++) {
-        // 读取GPIO引脚状态
-        uint32_t pinState = DL_GPIO_readPins((GPIO_Regs *)sensorPins[i].port, sensorPins[i].pin);
-        
-        // 根据配置决定传感器逻辑
-        #if SENSOR_LOGIC_INVERTED
-            // 反向逻辑：低电平=白色背景，高电平=检测到黑线
-            g_lineTracker.sensorValue[i] = (pinState != 0) ? 1 : 0;
-        #else
-            // 正常逻辑：高电平=白色背景，低电平=检测到黑线
-            g_lineTracker.sensorValue[i] = (pinState != 0) ? 0 : 1;
-        #endif
+        uint8_t raw_level = line_read_raw_level(&s_sensor_pins[i]);
+
+        g_lineTracker.rawSensorValue[i] = raw_level;
+        if (raw_level != 0u) {
+            g_lineTracker.rawSensorBits |= (uint8_t)(1u << i);
+        }
+
+        if (s_sensor_logic == LINE_SENSOR_BLACK_HIGH) {
+            g_lineTracker.sensorValue[i] = raw_level;
+        } else {
+            g_lineTracker.sensorValue[i] = raw_level ? 0u : 1u;
+        }
         
         // 更新位图
         if (g_lineTracker.sensorValue[i]) {
@@ -240,6 +317,79 @@ void LineTracker_Calibrate(void)
     // 这里可以实现传感器校准功能
     // 例如：记录传感器在白色和黑色表面的阈值
     printf("LineTracker: 校准功能预留，当前使用默认阈值\n");
+}
+
+void LineTracker_SetSensorLogic(LineSensorLogic_t logic)
+{
+    if ((logic != LINE_SENSOR_BLACK_LOW) && (logic != LINE_SENSOR_BLACK_HIGH)) {
+        return;
+    }
+
+    s_sensor_logic = logic;
+    printf("LineTracker: logic=%s\n", LineTracker_GetSensorLogicName());
+}
+
+LineSensorLogic_t LineTracker_GetSensorLogic(void)
+{
+    return s_sensor_logic;
+}
+
+const char *LineTracker_GetSensorLogicName(void)
+{
+    return (s_sensor_logic == LINE_SENSOR_BLACK_HIGH) ? "black=1" : "black=0";
+}
+
+uint8_t LineTracker_GetRawSensorBits(void)
+{
+    return g_lineTracker.rawSensorBits;
+}
+
+uint8_t LineTracker_GetRawSensorValue(uint8_t sensorIndex)
+{
+    if (sensorIndex < LINE_SENSOR_COUNT) {
+        return g_lineTracker.rawSensorValue[sensorIndex];
+    }
+    return 0u;
+}
+
+const char *LineTracker_GetSensorPinName(uint8_t sensorIndex)
+{
+    if (sensorIndex < LINE_SENSOR_COUNT) {
+        return s_sensor_pins[sensorIndex].name;
+    }
+    return "?";
+}
+
+bool LineTracker_SetSensorPinByName(uint8_t sensorIndex, const char *pin_name)
+{
+    const line_pin_desc_t *pin_desc;
+
+    if (sensorIndex >= LINE_SENSOR_COUNT) {
+        return false;
+    }
+
+    pin_desc = line_find_named_pin(pin_name);
+    if (pin_desc == NULL) {
+        return false;
+    }
+
+    s_sensor_pins[sensorIndex] = *pin_desc;
+    line_init_pin(&s_sensor_pins[sensorIndex]);
+    printf("LineTracker: sensor[%u] -> %s\n",
+           (unsigned)sensorIndex,
+           s_sensor_pins[sensorIndex].name);
+    return true;
+}
+
+void LineTracker_ResetSensorMapping(void)
+{
+    uint8_t i;
+
+    line_copy_default_mapping();
+    for (i = 0u; i < LINE_SENSOR_COUNT; ++i) {
+        line_init_pin(&s_sensor_pins[i]);
+    }
+    printf("LineTracker: mapping reset\n");
 }
 
 /* ======================== 调试功能（已注释） ======================== */

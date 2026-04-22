@@ -68,7 +68,7 @@ void Wheel_ControlStep(wheel_t *wheel, float dt_s)
                             wheel->measured_speed_mps,
                             dt_s);
     feedforward = wheel->cfg.speed_ff_gain * wheel->target_speed_mps;
-    duty = clampf((pid_output + feedforward) * wheel->cfg.duty_polarity, -1.0f, 1.0f);
+    duty = clampf(pid_output + feedforward, -1.0f, 1.0f);
     Motor_SetDuty(wheel->motor, duty);
 }
 

@@ -11,6 +11,7 @@ typedef struct {
 } line_controller_t;
 
 void LineController_Init(line_controller_t *controller, const pid_config_t *pid_cfg);
+void LineController_Reset(line_controller_t *controller);
 void LineController_SetPidConfig(line_controller_t *controller, const pid_config_t *pid_cfg);
 float LineController_Update(line_controller_t *controller,
                             float line_error,

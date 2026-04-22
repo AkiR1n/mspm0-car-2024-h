@@ -11,6 +11,7 @@ typedef struct {
     uint32_t         pulses_per_revolution;
     float            wheel_radius_m;
     float            sample_period_s;
+    float            direction_sign;
 } encoder_cfg_t;
 
 typedef struct {

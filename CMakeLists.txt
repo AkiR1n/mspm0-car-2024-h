@@ -28,7 +28,8 @@ set(APP_SOURCES
     ./Sources/chassis_system.c
     ./Sources/tasks/sensor_task.c
     ./Sources/tasks/control_task.c
-    ./Sources/tasks/mode_debug_task.c
+    ./Sources/tasks/main_task.c
+    ./Sources/tasks/test_task.c
 )
 file(GLOB MSPM0_SUPPORT_SOURCES "./Drivers/MSPM0/*.c")
 file(GLOB HAL_SOURCES "./Drivers/Hal/*.c")

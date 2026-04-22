@@ -9,6 +9,7 @@
 typedef struct {
     motor_hal_id_t hal_id;
     float          min_duty;
+    float          direction_sign;
 } motor_cfg_t;
 
 typedef struct {

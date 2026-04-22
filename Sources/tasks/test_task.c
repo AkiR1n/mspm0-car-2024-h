@@ -1,4 +1,4 @@
-#include "mode_debug_task.h"
+#include "test_task.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -13,6 +13,7 @@
 #include "app_state.h"
 #include "chassis_system.h"
 #include "encoder_hal.h"
+#include "linetracker.h"
 #include "pid.h"
 #include "uart_printf.h"
 #include "uart_rx.h"
@@ -30,7 +31,22 @@ typedef struct {
     uint32_t last_report_tick_ms;
     uint32_t last_irq_count;
     uint8_t  auto_stream_enabled;
-} mode_debug_ctx_t;
+} test_task_ctx_t;
+
+static void format_line_bits(uint8_t bits, char out[8])
+{
+    uint8_t i;
+
+    if (out == NULL) {
+        return;
+    }
+
+    for (i = 0u; i < 7u; ++i) {
+        uint8_t bit_index = (uint8_t)(6u - i);
+        out[i] = ((bits & (1u << bit_index)) != 0u) ? '1' : '0';
+    }
+    out[7] = '\0';
+}
 
 static float clampf(float value, float min_value, float max_value)
 {
@@ -151,6 +167,16 @@ static void apply_stop_command(void)
     command.stop = 1u;
     command.enable_closed_loop = 0u;
     app_state_set_mode(APP_MODE_STOP);
+    app_state_set_command(&command);
+}
+
+static void apply_main_command(void)
+{
+    chassis_command_t command = {0};
+
+    command.stop = 1u;
+    command.enable_closed_loop = 0u;
+    app_state_set_mode(APP_MODE_MAIN);
     app_state_set_command(&command);
 }
 
@@ -307,7 +333,7 @@ static void apply_pid_values_to_wheel(int wheel_index,
     }
 }
 
-static uint32_t calc_irq_per_second(mode_debug_ctx_t *ctx, uint32_t now_ms)
+static uint32_t calc_irq_per_second(test_task_ctx_t *ctx, uint32_t now_ms)
 {
     uint32_t irq_count;
     uint32_t delta_irq;
@@ -327,7 +353,7 @@ static uint32_t calc_irq_per_second(mode_debug_ctx_t *ctx, uint32_t now_ms)
     return irq_per_s;
 }
 
-static void emit_auto_sample(mode_debug_ctx_t *ctx, uint32_t now_ms, uint32_t irq_per_s)
+static void emit_auto_sample(test_task_ctx_t *ctx, uint32_t now_ms, uint32_t irq_per_s)
 {
     app_state_snapshot_t snapshot;
     const char *phase;
@@ -359,13 +385,15 @@ static void emit_auto_sample(mode_debug_ctx_t *ctx, uint32_t now_ms, uint32_t ir
 static void emit_human_status(uint32_t irq_per_s)
 {
     app_state_snapshot_t snapshot;
+    char line_text[8];
 
     app_state_get_snapshot(&snapshot);
+    format_line_bits(snapshot.feedback.line_bits, line_text);
 
     switch (snapshot.mode) {
     case APP_MODE_WHEEL_SPEED_TEST:
         uart_printf(
-            "mode=%s spd=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) irq/s=%lu tick=%lu\r\n",
+            "mode=%s spd=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.left_speed_mps,
             snapshot.command.right_speed_mps,
@@ -377,12 +405,16 @@ static void emit_human_status(uint32_t irq_per_s)
             snapshot.debug.right_motor_duty,
             (long)snapshot.feedback.left_count,
             (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_WHEEL_TEST:
         uart_printf(
-            "mode=%s duty=(%.3f,%.3f) meas=(%.3f,%.3f) count=(%ld,%ld) irq/s=%lu tick=%lu\r\n",
+            "mode=%s duty=(%.3f,%.3f) meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.left_duty,
             snapshot.command.right_duty,
@@ -390,12 +422,16 @@ static void emit_human_status(uint32_t irq_per_s)
             snapshot.feedback.right_speed_mps,
             (long)snapshot.feedback.left_count,
             (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_TWIST_OPEN:
         uart_printf(
-            "mode=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) irq/s=%lu tick=%lu\r\n",
+            "mode=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.v_mps,
             snapshot.command.w_radps,
@@ -407,35 +443,119 @@ static void emit_human_status(uint32_t irq_per_s)
             snapshot.debug.right_motor_duty,
             (long)snapshot.feedback.left_count,
             (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
+            (unsigned long)irq_per_s,
+            (unsigned long)EncoderHal_GetSampleTickCount());
+        break;
+    case APP_MODE_MAIN:
+        uart_printf(
+            "mode=%s state=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            app_mode_name(snapshot.mode),
+            app_main_state_name(snapshot.main_state),
+            snapshot.command.v_mps,
+            snapshot.command.w_radps,
+            snapshot.debug.left_target_mps,
+            snapshot.debug.right_target_mps,
+            snapshot.feedback.left_speed_mps,
+            snapshot.feedback.right_speed_mps,
+            snapshot.debug.left_motor_duty,
+            snapshot.debug.right_motor_duty,
+            (long)snapshot.feedback.left_count,
+            (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_STOP:
     default:
         uart_printf(
-            "mode=%s stop=%u meas=(%.3f,%.3f) count=(%ld,%ld) irq/s=%lu tick=%lu\r\n",
+            "mode=%s stop=%u meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             (unsigned)snapshot.command.stop,
             snapshot.feedback.left_speed_mps,
             snapshot.feedback.right_speed_mps,
             (long)snapshot.feedback.left_count,
             (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     }
 }
 
+static uint8_t read_gpio_level(GPIO_Regs *port, uint32_t pin)
+{
+    return (DL_GPIO_readPins(port, pin) != 0u) ? 1u : 0u;
+}
+
+static void print_line_config(void)
+{
+    uart_printf("linecfg 0:%s 1:%s 2:%s 3:%s 4:%s 5:%s 6:%s\r\n",
+                LineTracker_GetSensorPinName(0u),
+                LineTracker_GetSensorPinName(1u),
+                LineTracker_GetSensorPinName(2u),
+                LineTracker_GetSensorPinName(3u),
+                LineTracker_GetSensorPinName(4u),
+                LineTracker_GetSensorPinName(5u),
+                LineTracker_GetSensorPinName(6u));
+    uart_printf("line_logic=%s\r\n", LineTracker_GetSensorLogicName());
+}
+
+static void print_line_raw_status(void)
+{
+    char raw_text[8];
+    char norm_text[8];
+    uint8_t raw_bits;
+    uint8_t norm_bits;
+    uint8_t i;
+
+    LineTracker_ReadSensors();
+    raw_bits = LineTracker_GetRawSensorBits();
+    norm_bits = LineTracker_GetSensorBits();
+    format_line_bits(raw_bits, raw_text);
+    format_line_bits(norm_bits, norm_text);
+
+    uart_printf("lineraw logic=%s raw=%s norm=%s bits=0x%02X det=%u pos=%d\r\n",
+                LineTracker_GetSensorLogicName(),
+                raw_text,
+                norm_text,
+                (unsigned)norm_bits,
+                (unsigned)LineTracker_IsLineDetected(),
+                (int)LineTracker_GetLinePosition());
+
+    for (i = 0u; i < 7u; ++i) {
+        uart_printf("linech[%u] pin=%s raw=%u norm=%u\r\n",
+                    (unsigned)i,
+                    LineTracker_GetSensorPinName(i),
+                    (unsigned)LineTracker_GetRawSensorValue(i),
+                    (unsigned)LineTracker_GetSensorValue(i));
+    }
+
+    uart_printf("lineaux pb18=%u pa15=%u\r\n",
+                (unsigned)read_gpio_level(GPIO_Switch_Key_3_PORT, GPIO_Switch_Key_3_PIN),
+                (unsigned)read_gpio_level(GPIO_LED_PIN_1_PORT, GPIO_LED_PIN_1_PIN));
+}
+
 static void print_help(void)
 {
-    uart_printf("wheel test ready\r\n");
-    uart_printf("cmd: <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | stop\r\n");
+    uart_printf("test task ready\r\n");
+    uart_printf("cmd: <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
+    print_line_config();
 }
 
-static void handle_auto_command(mode_debug_ctx_t *ctx, char *payload)
+static void handle_auto_command(test_task_ctx_t *ctx, char *payload)
 {
     char *token;
     char *saveptr = NULL;
@@ -580,7 +700,7 @@ static void handle_auto_command(mode_debug_ctx_t *ctx, char *payload)
     uart_printf("auto,err,unknown,%s\r\n", token);
 }
 
-static void handle_command_line(mode_debug_ctx_t *ctx, char *line)
+static void handle_command_line(test_task_ctx_t *ctx, char *line)
 {
     float left_value;
     float right_value;
@@ -597,11 +717,73 @@ static void handle_command_line(mode_debug_ctx_t *ctx, char *line)
     if (strcmp(line, "showpid") == 0) {
         print_pid_line("left", 0);
         print_pid_line("right", 1);
+        print_line_config();
+        return;
+    }
+    if (strcmp(line, "lineraw") == 0) {
+        print_line_raw_status();
+        return;
+    }
+    if (strcmp(line, "linecfg") == 0) {
+        print_line_config();
+        return;
+    }
+    if (strcmp(line, "linecfg,reset") == 0) {
+        LineTracker_ResetSensorMapping();
+        print_line_config();
+        return;
+    }
+    if (strncmp(line, "linecfg,", 8) == 0) {
+        char *cursor = line + 8;
+        char *endptr;
+        long index;
+        char *pin_name;
+
+        index = strtol(cursor, &endptr, 10);
+        if ((endptr == cursor) || (*endptr != ',')) {
+            uart_printf("linecfg parse error: %s\r\n", line);
+            return;
+        }
+
+        pin_name = trim_ascii(endptr + 1);
+        if ((index < 0L) || (index >= 7L) || (*pin_name == '\0')) {
+            uart_printf("linecfg parse error: %s\r\n", line);
+            return;
+        }
+
+        if (!LineTracker_SetSensorPinByName((uint8_t)index, pin_name)) {
+            uart_printf("linecfg invalid pin: %s\r\n", pin_name);
+            return;
+        }
+
+        print_line_config();
         return;
     }
     if (strcmp(line, "stop") == 0) {
         apply_stop_command();
         uart_printf("cmd=stop\r\n");
+        return;
+    }
+    if (strcmp(line, "main") == 0) {
+        apply_main_command();
+        uart_printf("cmd=main\r\n");
+        return;
+    }
+    if (strncmp(line, "linepol,", 8) == 0) {
+        char *endptr;
+        long value = strtol(line + 8, &endptr, 10);
+
+        while (isspace((unsigned char)*endptr)) {
+            ++endptr;
+        }
+        if ((*endptr == '\0') && ((value == 0L) || (value == 1L))) {
+            LineTracker_SetSensorLogic((value == 0L)
+                                           ? LINE_SENSOR_BLACK_LOW
+                                           : LINE_SENSOR_BLACK_HIGH);
+            print_line_config();
+        } else {
+            uart_printf("line logic parse error: %s\r\n", line);
+        }
         return;
     }
     if ((strncmp(line, "spd,", 4) == 0) || (strncmp(line, "speed,", 6) == 0)) {
@@ -676,7 +858,7 @@ static void handle_command_line(mode_debug_ctx_t *ctx, char *line)
     uart_printf("cmd parse error: %s\r\n", line);
 }
 
-static void poll_uart(mode_debug_ctx_t *ctx)
+static void poll_uart(test_task_ctx_t *ctx)
 {
     char ch;
 
@@ -700,10 +882,10 @@ static void poll_uart(mode_debug_ctx_t *ctx)
     }
 }
 
-void mode_debug_task(void *arg)
+void test_task(void *arg)
 {
     TickType_t next = xTaskGetTickCount();
-    mode_debug_ctx_t ctx;
+    test_task_ctx_t ctx;
     uint32_t now_ms;
     uint32_t irq_per_s;
 
@@ -716,7 +898,6 @@ void mode_debug_task(void *arg)
 
     uart_rx_init();
     apply_stop_command();
-    app_state_set_mode(APP_MODE_WHEEL_TEST);
     print_help();
 
     for (;;) {

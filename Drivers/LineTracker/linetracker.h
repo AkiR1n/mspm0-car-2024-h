@@ -19,8 +19,8 @@ extern "C" {
 // 循迹传感器数量
 #define LINE_SENSOR_COUNT   7
 
-// 传感器逻辑反转选项（如果传感器逻辑相反，将此值设为1）
-#define SENSOR_LOGIC_INVERTED   1
+// 默认逻辑：1 表示检测到黑线输出高电平；0 表示检测到黑线输出低电平
+#define LINE_SENSOR_BLACK_HIGH_DEFAULT  0
 
 // 传感器权重定义（用于计算偏差）
 #define SENSOR_WEIGHT_0     -30     // 最左边传感器
@@ -43,9 +43,16 @@ typedef enum {
     LINE_STATE_UNKNOWN              // 未知状态
 } LineState_t;
 
+typedef enum {
+    LINE_SENSOR_BLACK_LOW = 0,      // 黑线 = 0，背景 = 1
+    LINE_SENSOR_BLACK_HIGH = 1,     // 黑线 = 1，背景 = 0
+} LineSensorLogic_t;
+
 // 循迹传感器数据结构
 typedef struct {
+    uint8_t rawSensorValue[LINE_SENSOR_COUNT];   // GPIO原始电平（0或1）
     uint8_t sensorValue[LINE_SENSOR_COUNT];  // 原始传感器值（0或1）
+    uint8_t rawSensorBits;                   // GPIO原始位图
     uint8_t sensorBits;                      // 传感器位图表示
     int16_t linePosition;                    // 线的位置（-30到30）
     LineState_t lineState;                   // 当前线状态
@@ -114,6 +121,14 @@ uint8_t LineTracker_GetSensorValue(uint8_t sensorIndex);
  * @brief 校准传感器（可选功能）
  */
 void LineTracker_Calibrate(void);
+void LineTracker_SetSensorLogic(LineSensorLogic_t logic);
+LineSensorLogic_t LineTracker_GetSensorLogic(void);
+const char *LineTracker_GetSensorLogicName(void);
+uint8_t LineTracker_GetRawSensorBits(void);
+uint8_t LineTracker_GetRawSensorValue(uint8_t sensorIndex);
+const char *LineTracker_GetSensorPinName(uint8_t sensorIndex);
+bool LineTracker_SetSensorPinByName(uint8_t sensorIndex, const char *pin_name);
+void LineTracker_ResetSensorMapping(void);
 
 #ifdef __cplusplus
 }
