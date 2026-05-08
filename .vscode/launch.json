@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "J-Link Debug",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "jlink",
+      "device": "MSPM0G3507",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/mspm0_school_2026.elf",
+      "armToolchainPath": "/usr/bin",
+      "gdbPath": "/usr/bin/arm-none-eabi-gdb",
+      "serverpath": "/usr/bin/JLinkGDBServer",
+      "serverArgs": [
+        "-speed",
+        "4000",
+        "-singlerun",
+        "-nogui"
+      ],
+      "preLaunchTask": "build",
+      "postRestartCommands": [
+        "monitor reset"
+      ]
+    },
+    {
+      "name": "J-Link Attach",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "jlink",
+      "device": "MSPM0G3507",
+      "interface": "swd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/mspm0_school_2026.elf",
+      "armToolchainPath": "/usr/bin",
+      "gdbPath": "/usr/bin/arm-none-eabi-gdb",
+      "serverpath": "/usr/bin/JLinkGDBServer",
+      "serverArgs": [
+        "-speed",
+        "4000",
+        "-singlerun",
+        "-nogui"
+      ]
+    }
+  ]
+}

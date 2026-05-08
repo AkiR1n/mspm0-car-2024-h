@@ -1,0 +1,193 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "syscfg",
+      "type": "process",
+      "command": "/opt/ccstudio/ccs/utils/sysconfig_1.26.0/sysconfig_cli.sh",
+      "args": [
+        "--product",
+        "${env:HOME}/ti/mspm0_sdk_2_10_00_04/.metadata/product.json",
+        "--device",
+        "MSPM0G3507",
+        "--package",
+        "LQFP-64(PM)",
+        "--compiler",
+        "gcc",
+        "--script",
+        "SysConfig/mspm0-school-2026.syscfg",
+        "--output",
+        "SysConfig"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "configure",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "-S",
+        ".",
+        "-B",
+        "build",
+        "-GNinja",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "build",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "configure"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "rebuild",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build",
+        "--clean-first"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "configure"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "hex",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build",
+        "--target",
+        "hex"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "bin",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build",
+        "--target",
+        "bin"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "flash-elf",
+      "type": "process",
+      "command": "/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite",
+      "args": [
+        "load",
+        "-c",
+        "targetConfigs/MSPM0G3507.ccxml",
+        "-f",
+        "build/mspm0_school_2026.elf"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "flash-hex",
+      "type": "process",
+      "command": "/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite",
+      "args": [
+        "load",
+        "-c",
+        "targetConfigs/MSPM0G3507.ccxml",
+        "-f",
+        "build/mspm0_school_2026.hex"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "hex"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "flash-jlink",
+      "type": "process",
+      "command": "/usr/bin/JLinkExe",
+      "args": [
+        "-CommanderScript",
+        ".vscode/jlink-flash.jlink"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "serial",
+      "type": "process",
+      "command": "picocom",
+      "args": [
+        "-b",
+        "115200",
+        "/dev/ttyACM0"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

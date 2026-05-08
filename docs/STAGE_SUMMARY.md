@@ -2,7 +2,7 @@
 
 > 本文档为较早阶段的历史汇总，记录的是 `motion-v2 + 四任务主线` 时期的状态。
 > 当前工程主线已切换到 `sensor/control/mode_debug` 三任务，且已脱主线的旧驱动、旧任务已移动到 `archive/legacy/`。
-> 现阶段请优先参考 [README.md](/home/aki/workspace_ccstheia/mspm0-school-2026/README.md:1) 和 [REFACTOR_ARCHIVE_20260422.md](/home/aki/workspace_ccstheia/mspm0-school-2026/REFACTOR_ARCHIVE_20260422.md:1)。
+> 现阶段请优先参考 [README](../README.md) 和 [[REFACTOR_ARCHIVE_20260422]]。
 
 ## 1. 当前定位
 

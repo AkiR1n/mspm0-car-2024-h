@@ -7,9 +7,8 @@
 - 三任务新主线已经替换旧 `motion_task` 主路径
 - 电机驱动、编码器驱动、MPU6050 驱动已可在板上工作
 - 轮子/编码器开环扫速测试已完成，结果见：
-  [WHEEL_SPEED_SWEEP_RESULTS.md](/home/aki/workspace_ccstheia/mspm0-school-2026/WHEEL_SPEED_SWEEP_RESULTS.md:1)
-- 已脱主线的旧驱动与旧任务现已移动到：
-  [archive/legacy](/home/aki/workspace_ccstheia/mspm0-school-2026/archive/legacy:1)
+  [[WHEEL_SPEED_SWEEP_RESULTS]]
+- 已脱主线的旧驱动与旧任务现已移动到：`archive/legacy/`
 
 ## 1. 当前结论
 
