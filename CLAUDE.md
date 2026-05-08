@@ -133,8 +133,9 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 - **已脱主线旧模块**在 `archive/legacy/`（旧驱动、旧任务、motion-v2 等），**不参与构建**
 - `Drivers/LineTracker/` 仍保留在主目录，因为 `line_sensor` 设备层还在间接复用
 - `Drivers/MPU6050/` 和 `Drivers/OLED_Hardware_I2C/` 为独立设备驱动
-- `CONTROL_CODE_SUMMARY.md` 是控制代码的详细架构文档，修改控制链时应先参考
+- `docs/CONTROL_CODE_SUMMARY.md` 是控制代码的详细架构文档，修改控制链时应先参考
 - SDK 源码通过 `mspm0g350x_base.cmake` 的 glob 引入，不需手工列出
+- `docs/` 是 Obsidian vault，存放所有项目文档、笔记和历史记录
 
 ## 修改 SysConfig 后的工作流
 
