@@ -11,6 +11,7 @@
 #include "task.h"
 
 #include "app_state.h"
+#include "bt_uart.h"
 #include "chassis_system.h"
 #include "encoder_hal.h"
 #include "linetracker.h"
@@ -1142,6 +1143,29 @@ static void poll_uart(test_task_ctx_t *ctx)
     }
 }
 
+static void poll_bt_uart(test_task_ctx_t *ctx)
+{
+    char ch;
+
+    while (bt_uart_get_char(&ch) != 0) {
+        if ((ch == '\r') || (ch == '\n')) {
+            if (ctx->rx_len > 0u) {
+                ctx->rx_line[ctx->rx_len] = '\0';
+                handle_command_line(ctx, ctx->rx_line);
+                ctx->rx_len = 0u;
+            }
+            continue;
+        }
+
+        if (ctx->rx_len + 1u >= sizeof(ctx->rx_line)) {
+            ctx->rx_len = 0u;
+            continue;
+        }
+
+        ctx->rx_line[ctx->rx_len++] = ch;
+    }
+}
+
 void test_task(void *arg)
 {
     TickType_t next = xTaskGetTickCount();
@@ -1157,12 +1181,14 @@ void test_task(void *arg)
     ctx.last_irq_count = EncoderHal_GetGpioIrqCount();
 
     uart_rx_init();
+    bt_uart_init();
     apply_stop_command();
     print_help();
 
     for (;;) {
         poll_keys(&ctx);
         poll_uart(&ctx);
+        poll_bt_uart(&ctx);
         emit_event_if_changed(&ctx);
 
         now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);

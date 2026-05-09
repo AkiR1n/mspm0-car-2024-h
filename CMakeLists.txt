@@ -24,6 +24,7 @@ set(APP_SOURCES
     ./Sources/runtime_stats.c
     ./Sources/uart_rx.c
     ./Sources/uart_printf.c
+    ./Sources/bt_uart.c
     ./Sources/app_state.c
     ./Sources/signal_driver.c
     ./Sources/chassis_system.c

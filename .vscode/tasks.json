@@ -188,6 +188,31 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "bt-serial",
+      "type": "process",
+      "command": "${workspaceFolder}/.vscode/bt-connect.sh",
+      "args": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "bt-monitor",
+      "type": "process",
+      "command": "picocom",
+      "args": [
+        "-b", "9600",
+        "/tmp/vBT24"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [],
+      "problemMatcher": []
     }
   ]
 }

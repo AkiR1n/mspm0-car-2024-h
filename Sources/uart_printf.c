@@ -1,5 +1,6 @@
 
 #include "uart_printf.h"
+#include "bt_uart.h"
 
 int uart_printf(const char *fmt, ...)
 {
@@ -19,10 +20,11 @@ int uart_printf(const char *fmt, ...)
     while(i < len)
     {
         DL_UART_transmitData(UART0_INST,buf[i]);
-        // 等待FIFO清空再输出
         while(!DL_UART_isTXFIFOEmpty(UART0_INST));
         i++;
     }
+
+    bt_uart_send((const uint8_t *)buf, len);
 
     return len;
 }
