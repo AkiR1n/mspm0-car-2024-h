@@ -4,7 +4,7 @@
     "llvm-vs-code-extensions.vscode-clangd",
     "ms-vscode.cpptools",
     "ms-vscode.cmake-tools",
-    "spmeesseman.vscode-taskexplorer",
+    "cnshenj.vscode-task-manager",
     "ms-vscode.vscode-serial-monitor"
   ]
 }
