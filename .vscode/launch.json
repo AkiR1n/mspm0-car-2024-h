@@ -48,16 +48,18 @@
       "name": "CMSIS-DAP Debug (pyOCD)",
       "type": "cortex-debug",
       "request": "launch",
-      "servertype": "external",
+      "servertype": "pyocd",
       "cwd": "${workspaceFolder}",
       "executable": "${workspaceFolder}/build/mspm0_school_2026.elf",
       "runToEntryPoint": "main",
-      "gdbTarget": "localhost:3333",
+      "targetId": "mspm0g3507",
+      "serverpath": "/home/aki/.local/bin/pyocd",
       "armToolchainPath": "/usr/bin",
       "gdbPath": "/usr/bin/arm-none-eabi-gdb",
+      "serverLaunchTimeout": 15000,
       "preLaunchTask": "build",
-      "preLaunchCommands": [
-        "monitor reset halt"
+      "postRestartCommands": [
+        "monitor reset"
       ]
     },
     {
