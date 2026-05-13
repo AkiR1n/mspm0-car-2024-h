@@ -58,7 +58,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_I2C_MPU6050_init();
     SYSCFG_DL_I2C_OLED_init();
     SYSCFG_DL_UART0_init();
-    SYSCFG_DL_UART_BT_init();
+    SYSCFG_DL_UART_DBG_init();
     /* Ensure backup structures have no valid state */
 	gPWM_MOTORBackup.backupRdy 	= false;
 	gTIMER_CALCBackup.backupRdy 	= false;
@@ -99,7 +99,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_reset(I2C_MPU6050_INST);
     DL_I2C_reset(I2C_OLED_INST);
     DL_UART_Main_reset(UART0_INST);
-    DL_UART_Main_reset(UART_BT_INST);
+    DL_UART_Main_reset(UART_DBG_INST);
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
@@ -108,7 +108,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_enablePower(I2C_MPU6050_INST);
     DL_I2C_enablePower(I2C_OLED_INST);
     DL_UART_Main_enablePower(UART0_INST);
-    DL_UART_Main_enablePower(UART_BT_INST);
+    DL_UART_Main_enablePower(UART_DBG_INST);
     delay_cycles(POWER_STARTUP_DELAY);
 }
 
@@ -146,9 +146,9 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
     DL_GPIO_initPeripheralInputFunction(
         GPIO_UART0_IOMUX_RX, GPIO_UART0_IOMUX_RX_FUNC);
     DL_GPIO_initPeripheralOutputFunction(
-        GPIO_UART_BT_IOMUX_TX, GPIO_UART_BT_IOMUX_TX_FUNC);
+        GPIO_UART_DBG_IOMUX_TX, GPIO_UART_DBG_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(
-        GPIO_UART_BT_IOMUX_RX, GPIO_UART_BT_IOMUX_RX_FUNC);
+        GPIO_UART_DBG_IOMUX_RX, GPIO_UART_DBG_IOMUX_RX_FUNC);
 
     DL_GPIO_initDigitalOutput(GPIO_MOTOR_PIN_AIN1_IOMUX);
 
@@ -549,12 +549,12 @@ SYSCONFIG_WEAK void SYSCFG_DL_UART0_init(void)
 
     DL_UART_Main_enable(UART0_INST);
 }
-static const DL_UART_Main_ClockConfig gUART_BTClockConfig = {
+static const DL_UART_Main_ClockConfig gUART_DBGClockConfig = {
     .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
     .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
 };
 
-static const DL_UART_Main_Config gUART_BTConfig = {
+static const DL_UART_Main_Config gUART_DBGConfig = {
     .mode        = DL_UART_MAIN_MODE_NORMAL,
     .direction   = DL_UART_MAIN_DIRECTION_TX_RX,
     .flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,
@@ -563,25 +563,25 @@ static const DL_UART_Main_Config gUART_BTConfig = {
     .stopBits    = DL_UART_MAIN_STOP_BITS_ONE
 };
 
-SYSCONFIG_WEAK void SYSCFG_DL_UART_BT_init(void)
+SYSCONFIG_WEAK void SYSCFG_DL_UART_DBG_init(void)
 {
-    DL_UART_Main_setClockConfig(UART_BT_INST, (DL_UART_Main_ClockConfig *) &gUART_BTClockConfig);
+    DL_UART_Main_setClockConfig(UART_DBG_INST, (DL_UART_Main_ClockConfig *) &gUART_DBGClockConfig);
 
-    DL_UART_Main_init(UART_BT_INST, (DL_UART_Main_Config *) &gUART_BTConfig);
+    DL_UART_Main_init(UART_DBG_INST, (DL_UART_Main_Config *) &gUART_DBGConfig);
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
-     *  Target baud rate: 9600
-     *  Actual baud rate: 9599.81
+     *  Target baud rate: 115200
+     *  Actual baud rate: 115190.78
      */
-    DL_UART_Main_setOversampling(UART_BT_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(UART_BT_INST, UART_BT_IBRD_40_MHZ_9600_BAUD, UART_BT_FBRD_40_MHZ_9600_BAUD);
+    DL_UART_Main_setOversampling(UART_DBG_INST, DL_UART_OVERSAMPLING_RATE_16X);
+    DL_UART_Main_setBaudRateDivisor(UART_DBG_INST, UART_DBG_IBRD_40_MHZ_115200_BAUD, UART_DBG_FBRD_40_MHZ_115200_BAUD);
 
 
     /* Configure FIFOs */
-    DL_UART_Main_enableFIFOs(UART_BT_INST);
-    DL_UART_Main_setRXFIFOThreshold(UART_BT_INST, DL_UART_RX_FIFO_LEVEL_1_2_FULL);
-    DL_UART_Main_setTXFIFOThreshold(UART_BT_INST, DL_UART_TX_FIFO_LEVEL_1_2_EMPTY);
+    DL_UART_Main_enableFIFOs(UART_DBG_INST);
+    DL_UART_Main_setRXFIFOThreshold(UART_DBG_INST, DL_UART_RX_FIFO_LEVEL_1_2_FULL);
+    DL_UART_Main_setTXFIFOThreshold(UART_DBG_INST, DL_UART_TX_FIFO_LEVEL_1_2_EMPTY);
 
-    DL_UART_Main_enable(UART_BT_INST);
+    DL_UART_Main_enable(UART_DBG_INST);
 }
 

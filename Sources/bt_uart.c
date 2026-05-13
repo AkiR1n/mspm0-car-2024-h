@@ -32,12 +32,12 @@ void bt_uart_init(void)
     s_tx_tail = 0u;
     s_tx_active = 0u;
 
-    DL_UART_Main_setRXFIFOThreshold(UART_BT_INST, DL_UART_RX_FIFO_LEVEL_1_4_FULL);
-    DL_UART_enableInterrupt(UART_BT_INST,
+    DL_UART_Main_setRXFIFOThreshold(UART_DBG_INST, DL_UART_RX_FIFO_LEVEL_1_4_FULL);
+    DL_UART_enableInterrupt(UART_DBG_INST,
                             DL_UART_INTERRUPT_RX |
                             DL_UART_INTERRUPT_RX_TIMEOUT_ERROR |
                             DL_UART_INTERRUPT_OVERRUN_ERROR);
-    NVIC_EnableIRQ(UART_BT_INST_INT_IRQN);
+    NVIC_EnableIRQ(UART_DBG_INST_INT_IRQN);
     s_initialized = 1u;
 }
 
@@ -46,14 +46,14 @@ void bt_uart_irq_handler(void)
     DL_UART_IIDX pending;
 
     do {
-        pending = DL_UART_getPendingInterrupt(UART_BT_INST);
+        pending = DL_UART_getPendingInterrupt(UART_DBG_INST);
 
         switch (pending) {
         case DL_UART_IIDX_RX:
         case DL_UART_IIDX_RX_TIMEOUT_ERROR:
-            while (!DL_UART_isRXFIFOEmpty(UART_BT_INST)) {
+            while (!DL_UART_isRXFIFOEmpty(UART_DBG_INST)) {
                 uint32_t next_head = (s_rx_head + 1u) % BT_RX_BUFFER_SIZE;
-                uint8_t data = DL_UART_receiveData(UART_BT_INST);
+                uint8_t data = DL_UART_receiveData(UART_DBG_INST);
 
                 if (next_head != s_rx_tail) {
                     s_rx_buf[s_rx_head] = data;
@@ -62,19 +62,19 @@ void bt_uart_irq_handler(void)
             }
             break;
         case DL_UART_IIDX_OVERRUN_ERROR:
-            DL_UART_clearInterruptStatus(UART_BT_INST, DL_UART_INTERRUPT_OVERRUN_ERROR);
-            while (!DL_UART_isRXFIFOEmpty(UART_BT_INST)) {
-                (void)DL_UART_receiveData(UART_BT_INST);
+            DL_UART_clearInterruptStatus(UART_DBG_INST, DL_UART_INTERRUPT_OVERRUN_ERROR);
+            while (!DL_UART_isRXFIFOEmpty(UART_DBG_INST)) {
+                (void)DL_UART_receiveData(UART_DBG_INST);
             }
             break;
         case DL_UART_IIDX_TX:
-            while (!DL_UART_isTXFIFOFull(UART_BT_INST)) {
+            while (!DL_UART_isTXFIFOFull(UART_DBG_INST)) {
                 if (s_tx_tail == s_tx_head) {
-                    DL_UART_disableInterrupt(UART_BT_INST, DL_UART_INTERRUPT_TX);
+                    DL_UART_disableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
                     s_tx_active = 0u;
                     break;
                 }
-                DL_UART_transmitData(UART_BT_INST, s_tx_buf[s_tx_tail]);
+                DL_UART_transmitData(UART_DBG_INST, s_tx_buf[s_tx_tail]);
                 s_tx_tail = (s_tx_tail + 1u) % BT_TX_BUFFER_SIZE;
             }
             break;
@@ -110,7 +110,7 @@ void bt_uart_send(const uint8_t *data, uint32_t len)
 
     /* Disable TX IRQ to prevent race with ISR clearing s_tx_active
      * after we've added data but before we re-enable the interrupt. */
-    DL_UART_disableInterrupt(UART_BT_INST, DL_UART_INTERRUPT_TX);
+    DL_UART_disableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
     was_active = s_tx_active;
 
     if (s_tx_head >= s_tx_tail) {
@@ -121,7 +121,7 @@ void bt_uart_send(const uint8_t *data, uint32_t len)
 
     if (len > free_space) {
         if (was_active != 0u) {
-            DL_UART_enableInterrupt(UART_BT_INST, DL_UART_INTERRUPT_TX);
+            DL_UART_enableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
         }
         return;
     }
@@ -132,7 +132,7 @@ void bt_uart_send(const uint8_t *data, uint32_t len)
     }
 
     s_tx_active = 1u;
-    DL_UART_enableInterrupt(UART_BT_INST, DL_UART_INTERRUPT_TX);
+    DL_UART_enableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
 }
 
 void bt_uart_send_str(const char *str)

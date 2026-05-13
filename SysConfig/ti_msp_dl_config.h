@@ -159,22 +159,22 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define UART0_BAUD_RATE                                                 (115200)
 #define UART0_IBRD_40_MHZ_115200_BAUD                                       (21)
 #define UART0_FBRD_40_MHZ_115200_BAUD                                       (45)
-/* Defines for UART_BT */
-#define UART_BT_INST                                                       UART1
-#define UART_BT_INST_FREQUENCY                                          40000000
-#define UART_BT_INST_IRQHandler                                 UART1_IRQHandler
-#define UART_BT_INST_INT_IRQN                                     UART1_INT_IRQn
-#define GPIO_UART_BT_RX_PORT                                               GPIOA
-#define GPIO_UART_BT_TX_PORT                                               GPIOA
-#define GPIO_UART_BT_RX_PIN                                        DL_GPIO_PIN_9
-#define GPIO_UART_BT_TX_PIN                                        DL_GPIO_PIN_8
-#define GPIO_UART_BT_IOMUX_RX                                    (IOMUX_PINCM20)
-#define GPIO_UART_BT_IOMUX_TX                                    (IOMUX_PINCM19)
-#define GPIO_UART_BT_IOMUX_RX_FUNC                     IOMUX_PINCM20_PF_UART1_RX
-#define GPIO_UART_BT_IOMUX_TX_FUNC                     IOMUX_PINCM19_PF_UART1_TX
-#define UART_BT_BAUD_RATE                                                 (9600)
-#define UART_BT_IBRD_40_MHZ_9600_BAUD                                      (260)
-#define UART_BT_FBRD_40_MHZ_9600_BAUD                                       (27)
+/* Defines for UART_DBG */
+#define UART_DBG_INST                                                      UART1
+#define UART_DBG_INST_FREQUENCY                                         40000000
+#define UART_DBG_INST_IRQHandler                                UART1_IRQHandler
+#define UART_DBG_INST_INT_IRQN                                    UART1_INT_IRQn
+#define GPIO_UART_DBG_RX_PORT                                              GPIOA
+#define GPIO_UART_DBG_TX_PORT                                              GPIOA
+#define GPIO_UART_DBG_RX_PIN                                       DL_GPIO_PIN_9
+#define GPIO_UART_DBG_TX_PIN                                       DL_GPIO_PIN_8
+#define GPIO_UART_DBG_IOMUX_RX                                   (IOMUX_PINCM20)
+#define GPIO_UART_DBG_IOMUX_TX                                   (IOMUX_PINCM19)
+#define GPIO_UART_DBG_IOMUX_RX_FUNC                    IOMUX_PINCM20_PF_UART1_RX
+#define GPIO_UART_DBG_IOMUX_TX_FUNC                    IOMUX_PINCM19_PF_UART1_TX
+#define UART_DBG_BAUD_RATE                                              (115200)
+#define UART_DBG_IBRD_40_MHZ_115200_BAUD                                    (21)
+#define UART_DBG_FBRD_40_MHZ_115200_BAUD                                    (45)
 
 
 
@@ -288,7 +288,7 @@ void SYSCFG_DL_TIMER_CALC_init(void);
 void SYSCFG_DL_I2C_MPU6050_init(void);
 void SYSCFG_DL_I2C_OLED_init(void);
 void SYSCFG_DL_UART0_init(void);
-void SYSCFG_DL_UART_BT_init(void);
+void SYSCFG_DL_UART_DBG_init(void);
 
 
 bool SYSCFG_DL_saveConfiguration(void);

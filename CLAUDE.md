@@ -37,7 +37,7 @@ pyocd flash -t mspm0g3507 build/mspm0_school_2026.elf
 picocom -b 115200 /dev/ttyACM1
 ```
 
-VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `bt-serial`, `bt-monitor`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
+VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
 
 调试：`Run Task → debug-server` 启动 pyOCD GDB server（常驻后台），之后 F5 直接调试。CMSIS-DAP 探针不能反复重连，server 保持运行即可。
 
@@ -72,7 +72,7 @@ VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`,
 | `sensor_task` | 6 | 512 | 10 ms | 刷新编码器/IMU/循迹，组装 `chassis_feedback_t`，写入 app_state |
 | `control_task` | 5 | 512 | 10 ms | 根据 mode 执行 `Twist(v,w)` 或 `WHEEL_TEST` 控制，输出电机 duty，写入 debug 状态 |
 | `main_task` | 3 | 512 | 10 ms | 赛题状态机（Q1–Q4），执行相位动作（ALIGN/GAP/ARC/STOP），**只写命令不碰电机** |
-| `test_task` | 2 | 512 | 50 ms | Key 切换题目/启动停止，串口命令解析（UART0 + BT 双通道），在线改 PID，状态打印 |
+| `test_task` | 2 | 512 | 50 ms | Key 切换题目/启动停止，串口命令解析（UART0 + UART1 双通道），在线改 PID，状态打印 |
 | `oled_task` | 1 | 384 | 100 ms | OLED 显示题号/相位/事件/观测量 |
 
 `sensor_task` 和 `control_task` 之间通过 `app_state` 的中介结构（`chassis_feedback_t`, `chassis_command_t`, `chassis_debug_t`）解耦，而非直接共享指针。
@@ -90,7 +90,7 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 - `GROUP1_IRQHandler → Encoder_OnEdgeIRQ()` — 编码器 GPIO 边沿计数
 - `TIMA1_IRQHandler → Encoder_OnSampleTick()` — 编码器周期采样计时
 - `UART0_IRQHandler → uart_rx_irq_handler()` — 有线串口接收（115200）
-- `UART1_IRQHandler → bt_uart_irq_handler()` — 蓝牙串口接收（9600）
+- `UART1_IRQHandler → bt_uart_irq_handler()` — 串口接收（115200）
 - SysTick 由 FreeRTOS 独占，**应用代码不得定义 SysTick_Handler**
 
 ## 引脚分配
@@ -110,8 +110,8 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 
 | 串口 | TX | RX | 波特率 | 用途 |
 |------|----|----|--------|------|
-| UART0 | PA10 | PA11 | 115200 | CMSIS-DAP / J-Link 有线调试 |
-| UART1 (BT) | PA8 | PA9 | 9600 | BT24 BLE 无线调试 |
+| UART0 | PA10 | PA11 | 115200 | 有线调试（ACM0） |
+| UART1 | PA8 | PA9 | 115200 | CMSIS-DAP VCOM（ACM1） |
 
 ### 其他
 
@@ -124,41 +124,23 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 | Key2 | — | 启动/停止 |
 | LED1, LED2, BEEP | — | 声光指示 |
 
-## 蓝牙 BLE 无线调试
+## 双串口
 
-### 架构
+两个 UART 均为 115200 有线串口：
 
-- **固件侧**：`Sources/bt_uart.c/h` — UART1 驱动（1024 字节 TX 环形缓冲 + 中断发送，128 字节 RX 环形缓冲 + 中断接收）
-- **PC 侧**：`.vscode/bt-connect.sh` — `ble-serial` 桥接 BT24 → `/tmp/vBT24` 虚拟串口
-- **双通道**：`test_task` 同时从 UART0 和 BT 读取命令，`uart_printf` 输出镜像到两个通道
+| 串口 | 硬件 | 设备 |
+|------|------|------|
+| UART0 | PA10/PA11 | `/dev/ttyACM0` |
+| UART1 | PA8/PA9（CMSIS-DAP VCOM） | `/dev/ttyACM1` |
 
-### 使用方式
-
-```sh
-# VS Code: Run Task → bt-serial（启动 BLE 桥接，后台）
-# VS Code: Run Task → bt-monitor（picocom 连 /tmp/vBT24，9600 baud）
-# 或终端:
-picocom -b 9600 /tmp/vBT24
-```
-
-BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
-
-### 常见问题
-
-- **BT 扫不到**：给 MSPM0 断电重启（BT24 跟着重启），等 10 秒再扫
-- **9600 较慢**：TX 缓冲满时会整条丢弃消息（不截断），高速刷屏时 BT 可能丢数据；UART0 115200 不受影响
-- **VS Code Serial Monitor 只扫 `/dev/ttyUSB*`**：所以改用 picocom + `/tmp/vBT24`
+`test_task` 同时从 UART0 和 UART1 读取命令，`uart_printf` 输出镜像到两个通道（UART0 阻塞发送，UART1 中断环形缓冲发送）。
 
 ## IMU 调试工具链
 
 ### Python GUI 实时监视器
 
 ```sh
-# 有线串口
-python3 tools/imu_monitor.py /dev/ttyACM0 115200
-
-# 蓝牙
-python3 tools/imu_monitor.py /tmp/vBT24 9600
+python3 tools/imu_monitor.py /dev/ttyACM1 115200
 
 # VS Code: Run Task → imu-monitor（弹出串口/波特率选择器）
 ```
@@ -265,7 +247,7 @@ IMU 独占模式（`imu` 命令）输出详细 IMU 数据：`yaw`, `yaw_dmp`, `g
 3. **底盘几何未标定**：轮半径、轮距均为理论值。轮距不准会使 `Twist(v,w)` 实际转向量与期望不一致。无线段里程判断也会偏。
 4. **IMU 已校准**：gyro_orientation z 轴和灵敏度已针对实际安装方向修正（`gyro_sens_override=8.2`）。yaw 方向正确、比例准确。IMU 需水平固定安装，倾斜角过大会降低 gyro_z 有效灵敏度。
 5. **小车上 SysConfig 外设仅通过 CCS Theia 图形编辑**，不要手动改生成文件（`ti_msp_dl_config.*`、`device_linker.lds`、`device.opt`）。
-6. **BT24 BLE 模块 9600 baud**：TX 速度受限，高速刷屏时会丢帧但不会截断数据。连接前建议给 BT24 断电重启。
+6. **双串口**：UART0 和 UART1 均为 115200 有线。UART1（PA8/PA9）使用 CMSIS-DAP VCOM，通过 `bt_uart` 驱动以中断环形缓冲发送。
 
 ## 文件组织约定
 

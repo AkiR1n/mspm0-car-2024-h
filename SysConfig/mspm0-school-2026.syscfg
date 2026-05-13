@@ -221,9 +221,9 @@ UART1.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 
 UART2.enableDMARX                      = false;
 UART2.enableDMATX                      = false;
-UART2.$name                            = "UART_BT";
+UART2.$name                            = "UART_DBG";
 UART2.enableFIFO                       = true;
-UART2.targetBaudRate                   = 9600;
+UART2.targetBaudRate                   = 115200;
 UART2.peripheral.$assign               = "UART1";
 UART2.peripheral.rxPin.$assign         = "PA9";
 UART2.peripheral.txPin.$assign         = "PA8";

@@ -234,31 +234,6 @@
       "problemMatcher": []
     },
     {
-      "label": "bt-serial",
-      "type": "process",
-      "command": "${workspaceFolder}/.vscode/bt-connect.sh",
-      "args": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "bt-monitor",
-      "type": "process",
-      "command": "picocom",
-      "args": [
-        "-b", "9600",
-        "/tmp/vBT24"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [],
-      "problemMatcher": []
-    },
-    {
       "label": "imu-monitor",
       "type": "process",
       "command": "python3",
@@ -280,18 +255,16 @@
       "description": "选择串口设备",
       "options": [
         "/dev/ttyACM0",
-        "/dev/ttyACM1",
-        "/tmp/vBT24"
+        "/dev/ttyACM1"
       ],
-      "default": "/dev/ttyACM0"
+      "default": "/dev/ttyACM1"
     },
     {
       "id": "serialBaud",
       "type": "pickString",
       "description": "选择波特率",
       "options": [
-        "115200",
-        "9600"
+        "115200"
       ],
       "default": "115200"
     }
