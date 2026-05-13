@@ -195,7 +195,7 @@
     {
       "label": "debug-server",
       "type": "process",
-      "command": "pyocd",
+      "command": "/home/aki/.local/bin/pyocd",
       "args": [
         "gdbserver",
         "-t", "mspm0g3507",
@@ -205,6 +205,18 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "debug-server-kill",
+      "type": "process",
+      "command": "pkill",
+      "args": [
+        "-f", "pyocd gdbserver"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     },
     {
