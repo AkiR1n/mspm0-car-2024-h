@@ -193,6 +193,19 @@
       "problemMatcher": []
     },
     {
+      "label": "debug-server-launch",
+      "type": "process",
+      "command": "${workspaceFolder}/.vscode/pyocd-server.sh",
+      "args": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "debug-server",
       "type": "process",
       "command": "/home/aki/.local/bin/pyocd",
