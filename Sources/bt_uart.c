@@ -7,7 +7,7 @@
 #include "ti_msp_dl_config.h"
 
 #define BT_RX_BUFFER_SIZE 128u
-#define BT_TX_BUFFER_SIZE 512u
+#define BT_TX_BUFFER_SIZE 1024u
 
 static volatile uint8_t s_rx_buf[BT_RX_BUFFER_SIZE];
 static volatile uint32_t s_rx_head = 0u;
@@ -97,20 +97,32 @@ int bt_uart_get_char(char *ch)
 
 void bt_uart_send(const uint8_t *data, uint32_t len)
 {
-    if (s_initialized == 0u) {
+    uint32_t free_space;
+
+    if ((s_initialized == 0u) || (len == 0u)) {
+        return;
+    }
+
+    if (len >= BT_TX_BUFFER_SIZE) {
+        len = BT_TX_BUFFER_SIZE - 1u;
+    }
+
+    if (s_tx_head >= s_tx_tail) {
+        free_space = BT_TX_BUFFER_SIZE - 1u - (s_tx_head - s_tx_tail);
+    } else {
+        free_space = s_tx_tail - s_tx_head - 1u;
+    }
+
+    if (len > free_space) {
         return;
     }
 
     for (uint32_t i = 0u; i < len; i++) {
-        uint32_t next_head = (s_tx_head + 1u) % BT_TX_BUFFER_SIZE;
-        if (next_head == s_tx_tail) {
-            break;
-        }
         s_tx_buf[s_tx_head] = data[i];
-        s_tx_head = next_head;
+        s_tx_head = (s_tx_head + 1u) % BT_TX_BUFFER_SIZE;
     }
 
-    if (s_tx_active == 0u && s_tx_head != s_tx_tail) {
+    if (s_tx_active == 0u) {
         s_tx_active = 1u;
         DL_UART_enableInterrupt(UART_BT_INST, DL_UART_INTERRUPT_TX);
     }

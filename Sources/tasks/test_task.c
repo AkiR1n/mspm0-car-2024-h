@@ -42,6 +42,8 @@ typedef struct {
 typedef struct {
     char     rx_line[MODE_CMD_BUFFER_SIZE];
     size_t   rx_len;
+    char     bt_rx_line[MODE_CMD_BUFFER_SIZE];
+    size_t   bt_rx_len;
     char     auto_phase[MODE_AUTO_PHASE_SIZE];
     uint32_t last_report_tick_ms;
     uint32_t last_irq_count;
@@ -1149,20 +1151,20 @@ static void poll_bt_uart(test_task_ctx_t *ctx)
 
     while (bt_uart_get_char(&ch) != 0) {
         if ((ch == '\r') || (ch == '\n')) {
-            if (ctx->rx_len > 0u) {
-                ctx->rx_line[ctx->rx_len] = '\0';
-                handle_command_line(ctx, ctx->rx_line);
-                ctx->rx_len = 0u;
+            if (ctx->bt_rx_len > 0u) {
+                ctx->bt_rx_line[ctx->bt_rx_len] = '\0';
+                handle_command_line(ctx, ctx->bt_rx_line);
+                ctx->bt_rx_len = 0u;
             }
             continue;
         }
 
-        if (ctx->rx_len + 1u >= sizeof(ctx->rx_line)) {
-            ctx->rx_len = 0u;
+        if (ctx->bt_rx_len + 1u >= sizeof(ctx->bt_rx_line)) {
+            ctx->bt_rx_len = 0u;
             continue;
         }
 
-        ctx->rx_line[ctx->rx_len++] = ch;
+        ctx->bt_rx_line[ctx->bt_rx_len++] = ch;
     }
 }
 
