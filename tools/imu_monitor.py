@@ -90,20 +90,23 @@ class SerialReader:
             time.sleep(warmup)
             self._enable_imu_mode()
 
-    def _enable_imu_mode(self, retries: int = 8):
+    def _enable_imu_mode(self, retries: int = 5):
         """Send 'imu,<period>' command and wait for data."""
         baud = self._ser.baudrate
-        # Choose period to stay under ~6 lines/sec for slow links
         period_ms = 200 if baud <= 9600 else 50
         cmd = f"imu,{period_ms}\r\n".encode()
+        # Slow links need more time for ack to arrive
+        wait_s = 1.5 if baud <= 9600 else 0.3
         print(f"IMU period: {period_ms}ms ({1000/period_ms:.0f} Hz)")
 
         for i in range(retries):
             self._ser.write(cmd)
-            time.sleep(0.3)
+            self._drain_buffer(check_imu_ack=True)
+            # Wait and drain again for late-arriving data
+            time.sleep(wait_s)
             self._drain_buffer(check_imu_ack=True)
             if self._imu_active or (len(self.data.t) > 0):
-                print("IMU mode active, receiving data")
+                print(f"IMU mode active ({len(self.data.t)} pts buffered)")
                 return
             if i < retries - 1:
                 print(f"  retry ({i+2}/{retries})...")
@@ -138,9 +141,15 @@ class SerialReader:
         return time.time() - self._last_line_time
 
     def close(self):
-        self._ser.write(b"imu\r\n")          # toggle back to normal
-        time.sleep(0.02)
-        self._ser.close()
+        try:
+            self._ser.write(b"imu\r\n")
+            time.sleep(0.05)
+        except Exception:
+            pass
+        try:
+            self._ser.close()
+        except Exception:
+            pass
 
 # ── Plot ──────────────────────────────────────────────────────────
 class ImuPlot:
