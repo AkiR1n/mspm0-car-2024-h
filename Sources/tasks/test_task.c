@@ -53,7 +53,8 @@ typedef struct {
     mode_key_state_t keys[MODE_KEY_COUNT];
 } test_task_ctx_t;
 
-static uint8_t s_imu_only_mode = 0u;
+static uint8_t  s_imu_only_mode = 0u;
+static uint32_t s_imu_report_period_ms = MODE_REPORT_PERIOD_MS;
 
 static const mode_key_desc_t k_mode_keys[MODE_KEY_COUNT] = {
     {GPIO_Switch_Key_1_PORT, GPIO_Switch_Key_1_PIN, "key1"},
@@ -822,7 +823,7 @@ static void print_help(void)
 {
     uart_printf("test task ready\r\n");
     uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
-    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop | imu | imuz,<sign> | imus,<sens>\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -1041,6 +1042,17 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
     if (strcmp(line, "imu") == 0) {
         s_imu_only_mode = (s_imu_only_mode == 0u) ? 1u : 0u;
         uart_printf("imu=%s\r\n", (s_imu_only_mode != 0u) ? "on" : "off");
+        return;
+    }
+    if (strncmp(line, "imu,", 4) == 0) {
+        char *cursor = line + 4;
+        char *endptr;
+        long ms = strtol(cursor, &endptr, 10);
+        if ((endptr != cursor) && (ms >= 20L) && (ms <= 2000L)) {
+            s_imu_report_period_ms = (uint32_t)ms;
+            s_imu_only_mode = 1u;
+            uart_printf("imu=on period=%lums\r\n", ms);
+        }
         return;
     }
     if (strncmp(line, "imuz,", 5) == 0) {
@@ -1262,12 +1274,16 @@ void test_task(void *arg)
         emit_event_if_changed(&ctx);
 
         now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        if ((now_ms - ctx.last_report_tick_ms) >= MODE_REPORT_PERIOD_MS) {
-            irq_per_s = calc_irq_per_second(&ctx, now_ms);
-            if (ctx.auto_stream_enabled != 0u) {
-                emit_auto_sample(&ctx, now_ms, irq_per_s);
-            } else {
-                emit_human_status(irq_per_s);
+        {
+            uint32_t period = (s_imu_only_mode != 0u)
+                ? s_imu_report_period_ms : MODE_REPORT_PERIOD_MS;
+            if ((now_ms - ctx.last_report_tick_ms) >= period) {
+                irq_per_s = calc_irq_per_second(&ctx, now_ms);
+                if (ctx.auto_stream_enabled != 0u) {
+                    emit_auto_sample(&ctx, now_ms, irq_per_s);
+                } else {
+                    emit_human_status(irq_per_s);
+                }
             }
         }
 

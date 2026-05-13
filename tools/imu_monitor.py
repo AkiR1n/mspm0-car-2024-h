@@ -74,36 +74,65 @@ class ImuData:
         self.up.append(float(fields.get("up", 0)))
         self.sms.append(float(fields.get("sms", 0)))
 
-# ── Serial reader (background thread) ─────────────────────────────
+# ── Serial reader ─────────────────────────────────────────────────
 class SerialReader:
-    def __init__(self, port: str, baud: int):
+    def __init__(self, port: str, baud: int, auto_imu: bool = True):
         self.data = ImuData()
         self._ser = serial.Serial(port, baud, timeout=0.1)
         self._buf = b""
         self._last_line_time = time.time()
-        time.sleep(0.3)
-        self._ser.write(b"imu\r\n")          # enable IMU-only mode
-        time.sleep(0.05)
-        self._ser.reset_input_buffer()
+        self._imu_active = False
 
-    def read_all(self):
-        """Call from main thread. Returns number of new lines parsed."""
-        count = 0
+        if auto_imu:
+            # Wait for connection to settle, then send 'imu' with retries
+            warmup = 3.0 if baud <= 9600 else 0.5
+            print(f"Warming up ({warmup:.0f}s)...")
+            time.sleep(warmup)
+            self._enable_imu_mode()
+
+    def _enable_imu_mode(self, retries: int = 8):
+        """Send 'imu,<period>' command and wait for data."""
+        baud = self._ser.baudrate
+        # Choose period to stay under ~6 lines/sec for slow links
+        period_ms = 200 if baud <= 9600 else 50
+        cmd = f"imu,{period_ms}\r\n".encode()
+        print(f"IMU period: {period_ms}ms ({1000/period_ms:.0f} Hz)")
+
+        for i in range(retries):
+            self._ser.write(cmd)
+            time.sleep(0.3)
+            self._drain_buffer(check_imu_ack=True)
+            if self._imu_active or (len(self.data.t) > 0):
+                print("IMU mode active, receiving data")
+                return
+            if i < retries - 1:
+                print(f"  retry ({i+2}/{retries})...")
+                time.sleep(1.0)
+        print("Warning: no IMU data received (check connection)")
+
+    def _drain_buffer(self, check_imu_ack: bool = False):
+        """Read available data without blocking long."""
         try:
-            chunk = self._ser.read(1024)
+            chunk = self._ser.read(256)
             if chunk:
                 self._buf += chunk
                 while b"\n" in self._buf:
                     line_bytes, self._buf = self._buf.split(b"\n", 1)
                     line = line_bytes.decode("ascii", errors="replace").strip()
+                    if check_imu_ack and "imu=on" in line:
+                        self._imu_active = True
                     fields = parse_imu_line(line)
                     if fields:
                         self.data.append(fields)
                         self._last_line_time = time.time()
-                        count += 1
         except (OSError, serial.SerialException):
             pass
-        return count
+
+    def read_all(self):
+        """Call from main thread. Returns number of new lines parsed."""
+        count = len(self.data.t)
+        self._drain_buffer()
+        return len(self.data.t) - count
 
     def stale_sec(self) -> float:
         return time.time() - self._last_line_time
@@ -310,15 +339,11 @@ def main():
 
     print(f"Connecting to {args.port} @ {args.baud} ...")
     try:
-        reader = SerialReader(args.port, args.baud)
+        reader = SerialReader(args.port, args.baud,
+                              auto_imu=not args.no_send_imu)
     except serial.SerialException as e:
         print(f"ERROR: {e}")
         sys.exit(1)
-
-    if not args.no_send_imu:
-        time.sleep(0.1)
-        reader._ser.write(b"imu\r\n")
-        print("IMU-only mode enabled on target")
 
     print("Starting GUI (close window to exit)...")
 
