@@ -327,6 +327,21 @@ class ImuPlot:
                 self.status_text)
 
 # ── Main ──────────────────────────────────────────────────────────
+def connect_serial(port: str, baud: int, auto_imu: bool, retry: bool) -> SerialReader:
+    """Connect to serial port, with optional retry loop."""
+    while True:
+        print(f"Connecting to {port} @ {baud} ...")
+        try:
+            return SerialReader(port, baud, auto_imu=auto_imu)
+        except (serial.SerialException, FileNotFoundError) as e:
+            if retry:
+                print(f"  {e}")
+                print(f"  Waiting for port... (Ctrl+C to cancel)")
+                time.sleep(2)
+            else:
+                print(f"ERROR: {e}")
+                sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="IMU real-time monitor")
     parser.add_argument("port", nargs="?", default="/dev/ttyACM0",
@@ -335,15 +350,16 @@ def main():
                         help="Baud rate (default: 115200)")
     parser.add_argument("--no-send-imu", action="store_true",
                         help="Don't send 'imu' command on connect")
+    parser.add_argument("--retry", action="store_true", default=None,
+                        help="Keep retrying if port not available")
     args = parser.parse_args()
 
-    print(f"Connecting to {args.port} @ {args.baud} ...")
-    try:
-        reader = SerialReader(args.port, args.baud,
-                              auto_imu=not args.no_send_imu)
-    except serial.SerialException as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
+    # Auto-enable retry for non-ACM ports (BT virtual ports etc.)
+    retry = args.retry if args.retry is not None else ("ACM" not in args.port.upper())
+
+    reader = connect_serial(args.port, args.baud,
+                            auto_imu=not args.no_send_imu,
+                            retry=retry)
 
     print("Starting GUI (close window to exit)...")
 
