@@ -34,7 +34,7 @@ cmake --build build --target bin
 picocom -b 115200 /dev/ttyACM0
 ```
 
-VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash-elf`, `flash-jlink`, `serial`），`Ctrl+Shift+P → Run Task` 即可。
+VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash-elf`, `flash-jlink`, `serial`, `bt-serial`, `bt-monitor`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
 
 产物：`build/mspm0_school_2026.{elf,hex,bin}`, `build/memory.map`, `build/compile_commands.json`
 
@@ -142,6 +142,53 @@ BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
 - **9600 较慢**：TX 缓冲满时会整条丢弃消息（不截断），高速刷屏时 BT 可能丢数据；UART0 115200 不受影响
 - **VS Code Serial Monitor 只扫 `/dev/ttyUSB*`**：所以改用 picocom + `/tmp/vBT24`
 
+## IMU 调试工具链
+
+### Python GUI 实时监视器
+
+```sh
+# 有线串口
+python3 tools/imu_monitor.py /dev/ttyACM0 115200
+
+# 蓝牙
+python3 tools/imu_monitor.py /tmp/vBT24 9600
+
+# VS Code: Run Task → imu-monitor（弹出串口/波特率选择器）
+```
+
+启动后自动向小车发送 `imu` 命令切换到 IMU 独占模式，关闭窗口时切回正常模式。
+
+界面布局：Yaw 时间曲线 + 指南针 + Gyro Z 曲线 + Gyro X/Y 曲线 + Accel XYZ 曲线 + 实时数值面板（yaw、gz、sign、sens 等）。
+
+### 串口调试命令
+
+| 命令 | 说明 |
+|------|------|
+| `imu` | 切换 IMU 独占显示模式（开启后串口只输出 `imu:` 行） |
+| `imuz,-1` | 反转陀螺 Z 轴方向 |
+| `imuz,1` | 恢复默认方向 |
+| `imus,8.2` | 设置陀螺灵敏度 |
+| `imus,0` | 恢复自动检测灵敏度 |
+
+### 校准流程
+
+1. 烧录后小车静止，等待 IMU 初始化（`imu=(1,1)`）
+2. `imu` 进入独占模式，观察 `yaw` 和 `yaw_dmp`
+3. 如果方向反了（顺时针转 yaw 减小）→ `imuz,-1`
+4. 转 90° 看 yaw 变化量，如果不准 → `imus,<值>` 微调
+5. 校准值固化到 `Sources/tasks/sensor_task.c` 的 `k_main_imu_cfg`
+
+## 循迹传感器配置
+
+`Drivers/LineTracker/linetracker.h`:
+
+| 宏 | 默认值 | 说明 |
+|----|--------|------|
+| `LINE_SENSOR_REVERSE_ORDER` | 已定义 | 反转传感器排列顺序（硬件排线反接时使用） |
+| `LINE_SENSOR_BLACK_HIGH_DEFAULT` | 1 | 黑线=高电平(1)，背景=低电平(0) |
+
+传感器权重通过 `SENSOR_WEIGHT_0` ~ `SENSOR_WEIGHT_6` 宏定义，`LINE_SENSOR_REVERSE_ORDER` 时权重镜像（-30..+30 变为 +30..-30）。引脚映射在 `linetracker.c` 的 `line_copy_default_mapping()` 中同样受此宏控制。
+
 ## 赛题状态机关键结构
 
 `main_task.c` 采用「动作原语 + 相位表」架构，不是每题独立写控制代码。
@@ -182,8 +229,14 @@ BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
 | `showpid` | — | 打印 PID 参数 |
 | `pidl,kp,ki,kd,ff` | `pidl,0.2,1.7,0,0.8` | 修改左轮 PID |
 | `pidr,kp,ki,kd,ff` | `pidr,0.2,1.7,0,0.8` | 修改右轮 PID |
+| `imu` | — | 切换 IMU 独占显示模式 |
+| `imuz,<sign>` | `imuz,-1` | 设置陀螺 Z 轴方向（+1 或 -1） |
+| `imus,<sens>` | `imus,8.2` | 覆写陀螺灵敏度（0=自动检测） |
 
 串口输出格式：`duty=(右,左) meas=(右,左) count=(右,左)`。
+
+STOP 模式输出包含 IMU 摘要：`imu=(ready,stable) yaw=... gz=... up=...`。
+IMU 独占模式（`imu` 命令）输出详细 IMU 数据：`yaw`, `yaw_dmp`, `gz_raw`, `gz_bias`, `sens` 等。
 
 ## 关键参数位置
 
@@ -192,7 +245,9 @@ BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
 - **线位置 PID**: `Sources/chassis_system.c` — line_pid_cfg（kp=0.067, kd=0.0004, out=[-2.6,2.6]）
 - **底盘几何**: `Sources/tasks/main_task.c` — 轮半径 0.0325m, 轮距 0.14m, 编码器 1456 ppr（均为**默认值，未实测标定**）
 - **弧线 profile**: `Sources/tasks/main_task.c` — k_arc_profile_bc/cb/da
-- **IMU 配置**: `Drivers/Devices/imu_drv.c` — warmup 1200ms, stable_hold 300ms
+- **IMU 配置**: `Sources/tasks/sensor_task.c` — `k_main_imu_cfg`（warmup 1200ms, stable_hold 300ms, gyro_z_sign=1, gyro_sens_override=8.2）
+- **IMU 方向矩阵**: `Drivers/MPU6050/mpu6050.c` — `gyro_orientation`（z 轴已反转为 -1，匹配实际芯片安装方向）
+- **IMU 校准**: DMP 输出的校准陀螺灵敏度约 8.2 LSB/dps（非理论 16.4），`gyro_sens_override` 已固化；运行时可用 `imus` 微调
 - **电机方向**: `Sources/chassis_system.c` — `motor_cfg_t.direction_sign` 和 `encoder_cfg_t.direction_sign`（正转前进为正显示）
 - **电机/编码器 HAL ID 映射**: `Sources/chassis_system.c` — 左/右软件对象对应物理 HAL ID
 
@@ -201,7 +256,7 @@ BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
 1. **FreeRTOS + M0+ 中断优先级**：Cortex-M0+ 只有 2 位优先级（0-3，数字越大优先级越低）。FreeRTOS CM0 端口要求 PendSV/SysTick 在最低优先级（3）。任何调用 `...FromISR()` 的外设 ISR 优先级不得高于此值。
 2. **SRAM 紧张**：32 KB SRAM 运行 5 任务 + MPU6050 DMP + OLED buffer，总 heap 16 KB，需注意栈溢出检查（`configCHECK_FOR_STACK_OVERFLOW = 2`）。
 3. **底盘几何未标定**：轮半径、轮距均为理论值。轮距不准会使 `Twist(v,w)` 实际转向量与期望不一致。无线段里程判断也会偏。
-4. **IMU 安装未定型**：IMU 未固定会晃动、安装偏角未补偿时 `yaw_deg` 只可参考，不能当强约束。
+4. **IMU 已校准**：gyro_orientation z 轴和灵敏度已针对实际安装方向修正（`gyro_sens_override=8.2`）。yaw 方向正确、比例准确。IMU 需水平固定安装，倾斜角过大会降低 gyro_z 有效灵敏度。
 5. **小车上 SysConfig 外设仅通过 CCS Theia 图形编辑**，不要手动改生成文件（`ti_msp_dl_config.*`、`device_linker.lds`、`device.opt`）。
 6. **BT24 BLE 模块 9600 baud**：TX 速度受限，高速刷屏时会丢帧但不会截断数据。连接前建议给 BT24 断电重启。
 
@@ -211,6 +266,7 @@ BT24 模块每次连接前最好断电重启，否则 bleak 可能扫不到。
 - **已脱主线旧模块**在 `archive/legacy/`（旧驱动、旧任务、motion-v2 等），**不参与构建**
 - `Drivers/LineTracker/` 仍保留在主目录，因为 `line_sensor` 设备层还在间接复用
 - `Drivers/MPU6050/` 和 `Drivers/OLED_Hardware_I2C/` 为独立设备驱动
+- `tools/` — PC 端辅助工具（`imu_monitor.py` 等），不参与固件构建
 - `docs/CONTROL_CODE_SUMMARY.md` 是控制代码的详细架构文档，修改控制链时应先参考
 - SDK 源码通过 `mspm0g350x_base.cmake` 的 glob 引入，不需手工列出
 - `docs/` 是 Obsidian vault，存放所有项目文档、笔记和历史记录
