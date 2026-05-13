@@ -20,9 +20,21 @@ extern "C" {
 #define LINE_SENSOR_COUNT   7
 
 // 默认逻辑：1 表示检测到黑线输出高电平；0 表示检测到黑线输出低电平
-#define LINE_SENSOR_BLACK_HIGH_DEFAULT  0
+#define LINE_SENSOR_BLACK_HIGH_DEFAULT  1
+
+// 定义此宏以反转循迹传感器左右顺序（硬件排线反接时使用）
+#define LINE_SENSOR_REVERSE_ORDER
 
 // 传感器权重定义（用于计算偏差）
+#ifdef LINE_SENSOR_REVERSE_ORDER
+#define SENSOR_WEIGHT_0     30      // 最右边传感器（物理反序）
+#define SENSOR_WEIGHT_1     20
+#define SENSOR_WEIGHT_2     10
+#define SENSOR_WEIGHT_3     0       // 中间传感器
+#define SENSOR_WEIGHT_4     -10
+#define SENSOR_WEIGHT_5     -20
+#define SENSOR_WEIGHT_6     -30     // 最左边传感器（物理反序）
+#else
 #define SENSOR_WEIGHT_0     -30     // 最左边传感器
 #define SENSOR_WEIGHT_1     -20
 #define SENSOR_WEIGHT_2     -10
@@ -30,6 +42,7 @@ extern "C" {
 #define SENSOR_WEIGHT_4     10
 #define SENSOR_WEIGHT_5     20
 #define SENSOR_WEIGHT_6     30      // 最右边传感器
+#endif
 
 // 循迹状态枚举
 typedef enum {

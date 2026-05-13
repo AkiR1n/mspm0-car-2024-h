@@ -98,7 +98,14 @@ static const line_pin_desc_t *line_find_named_pin(const char *pin_name)
 
 static void line_copy_default_mapping(void)
 {
+#ifdef LINE_SENSOR_REVERSE_ORDER
+    uint8_t i;
+    for (i = 0u; i < LINE_SENSOR_COUNT; ++i) {
+        s_sensor_pins[i] = k_default_sensor_pins[LINE_SENSOR_COUNT - 1u - i];
+    }
+#else
     memcpy(s_sensor_pins, k_default_sensor_pins, sizeof(s_sensor_pins));
+#endif
 }
 
 /**
