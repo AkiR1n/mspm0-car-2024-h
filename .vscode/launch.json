@@ -56,6 +56,7 @@
       "armToolchainPath": "/usr/bin",
       "gdbPath": "/usr/bin/arm-none-eabi-gdb",
       "preLaunchTask": "debug-server-launch",
+      "postDebugTask": "debug-server-kill",
       "postRestartCommands": [
         "monitor reset halt",
         "load",
