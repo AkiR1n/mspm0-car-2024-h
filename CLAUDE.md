@@ -33,8 +33,8 @@ pyocd flash -t mspm0g3507 build/mspm0_school_2026.elf
 # J-Link 烧录（保留备用）
 /usr/bin/JLinkExe -CommanderScript .vscode/jlink-flash.jlink
 
-# 串口（CMSIS-DAP VCOM 为 /dev/ttyACM1，J-Link 为 /dev/ttyACM0）
-picocom -b 115200 /dev/ttyACM1
+# 串口（CMSIS-DAP VCOM 为 /dev/ttyACM0）
+picocom -b 115200 /dev/ttyACM0
 ```
 
 VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
@@ -110,8 +110,8 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 
 | 串口 | TX | RX | 波特率 | 用途 |
 |------|----|----|--------|------|
-| UART0 | PA10 | PA11 | 115200 | 有线调试（ACM0） |
-| UART1 | PA8 | PA9 | 115200 | CMSIS-DAP VCOM（ACM1） |
+| UART0 | PA10 | PA11 | 115200 | 有线调试 |
+| UART1 | PA8 | PA9 | 115200 | CMSIS-DAP VCOM（ACM0） |
 
 ### 其他
 
@@ -130,8 +130,8 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 
 | 串口 | 硬件 | 设备 |
 |------|------|------|
-| UART0 | PA10/PA11 | `/dev/ttyACM0` |
-| UART1 | PA8/PA9（CMSIS-DAP VCOM） | `/dev/ttyACM1` |
+| UART0 | PA10/PA11 | J-Link VCOM（ACM1，如果连接） |
+| UART1 | PA8/PA9（CMSIS-DAP VCOM） | `/dev/ttyACM0` |
 
 `test_task` 同时从 UART0 和 UART1 读取命令，`uart_printf` 输出镜像到两个通道（UART0 阻塞发送，UART1 中断环形缓冲发送）。
 
@@ -140,7 +140,7 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 ### Python GUI 实时监视器
 
 ```sh
-python3 tools/imu_monitor.py /dev/ttyACM1 115200
+python3 tools/imu_monitor.py /dev/ttyACM0 115200
 
 # VS Code: Run Task → imu-monitor（弹出串口/波特率选择器）
 ```
