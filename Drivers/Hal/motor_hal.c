@@ -21,22 +21,12 @@ void MotorHal_SetDirection(motor_hal_id_t id, motor_hal_dir_t dir)
 
     switch (dir) {
     case MOTOR_HAL_DIR_FORWARD:
-        if (id == MOTOR_HAL_LEFT) {
-            DL_GPIO_setPins(GPIO_MOTOR_PORT, in1);
-            DL_GPIO_clearPins(GPIO_MOTOR_PORT, in2);
-        } else {
-            DL_GPIO_clearPins(GPIO_MOTOR_PORT, in1);
-            DL_GPIO_setPins(GPIO_MOTOR_PORT, in2);
-        }
+        DL_GPIO_setPins(GPIO_MOTOR_PORT, in1);
+        DL_GPIO_clearPins(GPIO_MOTOR_PORT, in2);
         break;
     case MOTOR_HAL_DIR_REVERSE:
-        if (id == MOTOR_HAL_LEFT) {
-            DL_GPIO_clearPins(GPIO_MOTOR_PORT, in1);
-            DL_GPIO_setPins(GPIO_MOTOR_PORT, in2);
-        } else {
-            DL_GPIO_setPins(GPIO_MOTOR_PORT, in1);
-            DL_GPIO_clearPins(GPIO_MOTOR_PORT, in2);
-        }
+        DL_GPIO_clearPins(GPIO_MOTOR_PORT, in1);
+        DL_GPIO_setPins(GPIO_MOTOR_PORT, in2);
         break;
     case MOTOR_HAL_DIR_COAST:
     default:
