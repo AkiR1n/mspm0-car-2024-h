@@ -39,6 +39,8 @@ picocom -b 115200 /dev/ttyACM1
 
 VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `bt-serial`, `bt-monitor`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
 
+调试：`Run Task → debug-server` 启动 pyOCD GDB server（常驻后台），之后 F5 直接调试。CMSIS-DAP 探针不能反复重连，server 保持运行即可。
+
 产物：`build/mspm0_school_2026.{elf,hex,bin}`, `build/memory.map`, `build/compile_commands.json`
 
 ## 工具链路径
