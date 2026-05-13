@@ -23,18 +23,21 @@ cmake --build build
 cmake --build build --target hex
 cmake --build build --target bin
 
-# DSLite 烧录（CCS 自带工具）
+# DSLite 烧录（CCS 自带工具，需 XDS110 调试器）
 /opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite load \
     -c targetConfigs/MSPM0G3507.ccxml -f build/mspm0_school_2026.elf
 
-# J-Link 烧录
+# pyOCD 烧录（CMSIS-DAP 调试器）
+pyocd flash -t mspm0g3507 build/mspm0_school_2026.elf
+
+# J-Link 烧录（保留备用）
 /usr/bin/JLinkExe -CommanderScript .vscode/jlink-flash.jlink
 
-# 串口（有线 J-Link VCOM）
-picocom -b 115200 /dev/ttyACM0
+# 串口（CMSIS-DAP VCOM 为 /dev/ttyACM1，J-Link 为 /dev/ttyACM0）
+picocom -b 115200 /dev/ttyACM1
 ```
 
-VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash-elf`, `flash-jlink`, `serial`, `bt-serial`, `bt-monitor`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
+VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `bt-serial`, `bt-monitor`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
 
 产物：`build/mspm0_school_2026.{elf,hex,bin}`, `build/memory.map`, `build/compile_commands.json`
 
@@ -46,7 +49,9 @@ VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`,
 | MSPM0 SDK | `~/ti/mspm0_sdk_2_10_00_04/` |
 | SysConfig CLI | `/opt/ccstudio/ccs/utils/sysconfig_1.26.0/sysconfig_cli.sh` |
 | DSLite | `/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite` |
-| J-Link | `/usr/bin/JLinkExe` + `/usr/bin/JLinkGDBServer` |
+| pyOCD | `/home/aki/.local/bin/pyocd`（CMSIS-DAP） |
+| OpenOCD | `/usr/bin/openocd`（CMSIS-DAP debug server） |
+| J-Link | `/usr/bin/JLinkExe` + `/usr/bin/JLinkGDBServer`（保留） |
 
 ## 架构：分层 + 任务
 
@@ -103,7 +108,7 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 
 | 串口 | TX | RX | 波特率 | 用途 |
 |------|----|----|--------|------|
-| UART0 | PA10 | PA11 | 115200 | J-Link 有线调试 |
+| UART0 | PA10 | PA11 | 115200 | CMSIS-DAP / J-Link 有线调试 |
 | UART1 (BT) | PA8 | PA9 | 9600 | BT24 BLE 无线调试 |
 
 ### 其他

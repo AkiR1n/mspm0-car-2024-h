@@ -160,6 +160,23 @@
       "problemMatcher": []
     },
     {
+      "label": "flash",
+      "type": "process",
+      "command": "pyocd",
+      "args": [
+        "flash",
+        "-t", "mspm0g3507",
+        "build/mspm0_school_2026.elf"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "build"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "flash-jlink",
       "type": "process",
       "command": "/usr/bin/JLinkExe",
@@ -176,13 +193,28 @@
       "problemMatcher": []
     },
     {
+      "label": "debug-server",
+      "type": "process",
+      "command": "pyocd",
+      "args": [
+        "gdbserver",
+        "-t", "mspm0g3507",
+        "--persist"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "serial",
       "type": "process",
       "command": "picocom",
       "args": [
         "-b",
         "115200",
-        "/dev/ttyACM0"
+        "${input:serialPort}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
