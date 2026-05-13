@@ -10,6 +10,8 @@ const imu_cfg_t IMU_CONFIG_DEFAULT = {
     .estimate_gyro_bias = 1u,
     .apply_dmp_bias = 0u,
     .zero_yaw_on_stable = 1u,
+    .gyro_z_sign = 1.0f,
+    .gyro_sens_override = 0.0f,
 };
 
 static float Imu_WrapAngleDeg(float angle_deg)
@@ -108,6 +110,9 @@ int Imu_Init(imu_t *imu, const imu_cfg_t *cfg)
     if ((result == 0) && (MPU6050_GetGyroSens(&gyro_sens) == 0) &&
         (gyro_sens > 0.0f)) {
         imu->gyro_sens_lsb_per_dps = gyro_sens;
+        if (imu->cfg.gyro_sens_override > 0.0f) {
+            imu->gyro_sens_lsb_per_dps = imu->cfg.gyro_sens_override;
+        }
     }
     return result;
 }
@@ -171,7 +176,7 @@ void Imu_Refresh(imu_t *imu, uint32_t dt_ms)
 
         imu->gyro_x = corrected_gyro_x_raw / imu->gyro_sens_lsb_per_dps;
         imu->gyro_y = corrected_gyro_y_raw / imu->gyro_sens_lsb_per_dps;
-        imu->gyro_z = corrected_gyro_z_raw / imu->gyro_sens_lsb_per_dps;
+        imu->gyro_z = corrected_gyro_z_raw / imu->gyro_sens_lsb_per_dps * imu->cfg.gyro_z_sign;
 
         if (imu->bias_committed != 0u) {
             dt_s = (float)dt_ms / 1000.0f;
@@ -207,6 +212,23 @@ void Imu_Refresh(imu_t *imu, uint32_t dt_ms)
             }
         } else {
             imu->stable_hold_accum_ms = 0u;
+        }
+    }
+}
+
+void Imu_SetGyroZSign(imu_t *imu, float sign)
+{
+    if (imu != NULL) {
+        imu->cfg.gyro_z_sign = (sign >= 0.0f) ? 1.0f : -1.0f;
+    }
+}
+
+void Imu_SetGyroSensOverride(imu_t *imu, float sens)
+{
+    if (imu != NULL) {
+        imu->cfg.gyro_sens_override = sens;
+        if (sens > 0.0f) {
+            imu->gyro_sens_lsb_per_dps = sens;
         }
     }
 }

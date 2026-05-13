@@ -12,6 +12,8 @@ typedef struct {
     uint8_t estimate_gyro_bias;
     uint8_t apply_dmp_bias;
     uint8_t zero_yaw_on_stable;
+    float   gyro_z_sign;
+    float   gyro_sens_override;
 } imu_cfg_t;
 
 typedef struct {
@@ -52,5 +54,7 @@ extern const imu_cfg_t IMU_CONFIG_DEFAULT;
 
 int Imu_Init(imu_t *imu, const imu_cfg_t *cfg);
 void Imu_Refresh(imu_t *imu, uint32_t dt_ms);
+void Imu_SetGyroZSign(imu_t *imu, float sign);
+void Imu_SetGyroSensOverride(imu_t *imu, float sens);
 
 #endif

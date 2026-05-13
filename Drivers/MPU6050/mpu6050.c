@@ -79,7 +79,7 @@ const mpu6050_config_t MPU6050_CONFIG_FAST_START = {
  */
 static signed char gyro_orientation[9] = {-1, 0, 0,
                                            0,-1, 0,
-                                           0, 0, 1};
+                                           0, 0,-1};
 
 static void tap_cb(unsigned char direction, unsigned char count)
 {

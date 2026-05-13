@@ -14,6 +14,7 @@
 #include "bt_uart.h"
 #include "chassis_system.h"
 #include "encoder_hal.h"
+#include "imu_drv.h"
 #include "linetracker.h"
 #include "pid.h"
 #include "uart_printf.h"
@@ -51,6 +52,8 @@ typedef struct {
     uint8_t  auto_stream_enabled;
     mode_key_state_t keys[MODE_KEY_COUNT];
 } test_task_ctx_t;
+
+static uint8_t s_imu_only_mode = 0u;
 
 static const mode_key_desc_t k_mode_keys[MODE_KEY_COUNT] = {
     {GPIO_Switch_Key_1_PORT, GPIO_Switch_Key_1_PIN, "key1"},
@@ -488,12 +491,43 @@ static void emit_auto_sample(test_task_ctx_t *ctx, uint32_t now_ms, uint32_t irq
         (unsigned long)EncoderHal_GetSampleTickCount());
 }
 
+static void emit_imu_only(const app_state_snapshot_t *snapshot)
+{
+    imu_t *imu = chassis_system_get_imu();
+    uart_printf(
+        "imu: yaw=%.1f yaw_dmp=%.1f yaw_rel=%.1f "
+        "gz=%.2f gz_raw=%.1f gz_bias=%.2f "
+        "pitch=%.1f roll=%.1f "
+        "rdy=%u stb=%u bias=%u up=%lu "
+        "sign=%.0f sens=%.1f\r\n",
+        snapshot->feedback.yaw_deg,
+        (imu != NULL) ? imu->yaw_deg_raw : 0.0f,
+        (imu != NULL) ? imu->yaw_rel_deg : 0.0f,
+        snapshot->feedback.gyro_z,
+        (imu != NULL) ? imu->gyro_z_raw : 0.0f,
+        (imu != NULL) ? imu->gyro_z_bias : 0.0f,
+        snapshot->feedback.pitch_deg,
+        snapshot->feedback.roll_deg,
+        (unsigned)snapshot->feedback.imu_ready,
+        (unsigned)snapshot->feedback.imu_stable,
+        (imu != NULL) ? imu->bias_committed : 0u,
+        (unsigned long)snapshot->feedback.imu_uptime_ms,
+        (imu != NULL) ? imu->cfg.gyro_z_sign : 0.0f,
+        (imu != NULL) ? imu->gyro_sens_lsb_per_dps : 0.0f);
+}
+
 static void emit_human_status(uint32_t irq_per_s)
 {
     app_state_snapshot_t snapshot;
     char line_text[8];
 
     app_state_get_snapshot(&snapshot);
+
+    if (s_imu_only_mode != 0u) {
+        emit_imu_only(&snapshot);
+        return;
+    }
+
     format_line_bits(snapshot.feedback.line_bits, line_text);
 
     switch (snapshot.mode) {
@@ -592,7 +626,7 @@ static void emit_human_status(uint32_t irq_per_s)
     case APP_MODE_STOP:
     default:
         uart_printf(
-            "mode=%s stop=%u meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s stop=%u meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             (unsigned)snapshot.command.stop,
             snapshot.feedback.left_speed_mps,
@@ -603,6 +637,11 @@ static void emit_human_status(uint32_t irq_per_s)
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
             (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
@@ -783,7 +822,7 @@ static void print_help(void)
 {
     uart_printf("test task ready\r\n");
     uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
-    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop | imu | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -997,6 +1036,35 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
     if (strcmp(line, "stop") == 0) {
         apply_stop_command();
         uart_printf("cmd=stop\r\n");
+        return;
+    }
+    if (strcmp(line, "imu") == 0) {
+        s_imu_only_mode = (s_imu_only_mode == 0u) ? 1u : 0u;
+        uart_printf("imu=%s\r\n", (s_imu_only_mode != 0u) ? "on" : "off");
+        return;
+    }
+    if (strncmp(line, "imuz,", 5) == 0) {
+        char *cursor = line + 5;
+        char *endptr;
+        float sign = strtof(cursor, &endptr);
+        if (endptr != cursor) {
+            Imu_SetGyroZSign(chassis_system_get_imu(), sign);
+            uart_printf("imuz=%.1f gsens=%.1f\r\n",
+                        chassis_system_get_imu()->cfg.gyro_z_sign,
+                        chassis_system_get_imu()->gyro_sens_lsb_per_dps);
+        }
+        return;
+    }
+    if (strncmp(line, "imus,", 5) == 0) {
+        char *cursor = line + 5;
+        char *endptr;
+        float sens = strtof(cursor, &endptr);
+        if (endptr != cursor) {
+            Imu_SetGyroSensOverride(chassis_system_get_imu(), sens);
+            uart_printf("imus=%.1f gsens=%.1f\r\n",
+                        chassis_system_get_imu()->cfg.gyro_sens_override,
+                        chassis_system_get_imu()->gyro_sens_lsb_per_dps);
+        }
         return;
     }
     if (strcmp(line, "q1") == 0) {

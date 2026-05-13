@@ -20,6 +20,8 @@ static const imu_cfg_t k_main_imu_cfg = {
     .estimate_gyro_bias = 1u,
     .apply_dmp_bias = 0u,
     .zero_yaw_on_stable = 1u,
+    .gyro_z_sign = 1.0f,
+    .gyro_sens_override = 8.2f,
 };
 
 void sensor_task(void *arg)

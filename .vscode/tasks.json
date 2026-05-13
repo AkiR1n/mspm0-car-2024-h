@@ -213,6 +213,43 @@
       },
       "dependsOn": [],
       "problemMatcher": []
+    },
+    {
+      "label": "imu-monitor",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/tools/imu_monitor.py",
+        "${input:serialPort}",
+        "${input:serialBaud}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "serialPort",
+      "type": "pickString",
+      "description": "选择串口设备",
+      "options": [
+        "/dev/ttyACM0",
+        "/dev/ttyACM1",
+        "/tmp/vBT24"
+      ],
+      "default": "/dev/ttyACM0"
+    },
+    {
+      "id": "serialBaud",
+      "type": "pickString",
+      "description": "选择波特率",
+      "options": [
+        "115200",
+        "9600"
+      ],
+      "default": "115200"
     }
   ]
 }
