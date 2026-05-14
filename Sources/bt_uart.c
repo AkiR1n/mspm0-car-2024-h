@@ -6,18 +6,17 @@
 
 #include "ti_msp_dl_config.h"
 
+/*
+ * Historical name: this module used to drive BT24 BLE.
+ * It now owns UART1 / CMSIS-DAP VCOM command RX and mirrored debug TX.
+ */
 #define BT_RX_BUFFER_SIZE 128u
-#define BT_TX_BUFFER_SIZE 1024u
 
 static volatile uint8_t s_rx_buf[BT_RX_BUFFER_SIZE];
 static volatile uint32_t s_rx_head = 0u;
 static volatile uint32_t s_rx_tail = 0u;
-
-static volatile uint8_t s_tx_buf[BT_TX_BUFFER_SIZE];
-static volatile uint32_t s_tx_head = 0u;
-static volatile uint32_t s_tx_tail = 0u;
-static volatile uint8_t s_tx_active = 0u;
-
+static volatile uint32_t s_rx_overflow = 0u;
+static volatile uint32_t s_hw_overrun = 0u;
 static volatile uint8_t s_initialized = 0u;
 
 void bt_uart_init(void)
@@ -28,9 +27,8 @@ void bt_uart_init(void)
 
     s_rx_head = 0u;
     s_rx_tail = 0u;
-    s_tx_head = 0u;
-    s_tx_tail = 0u;
-    s_tx_active = 0u;
+    s_rx_overflow = 0u;
+    s_hw_overrun = 0u;
 
     DL_UART_Main_setRXFIFOThreshold(UART_DBG_INST, DL_UART_RX_FIFO_LEVEL_1_4_FULL);
     DL_UART_enableInterrupt(UART_DBG_INST,
@@ -58,24 +56,16 @@ void bt_uart_irq_handler(void)
                 if (next_head != s_rx_tail) {
                     s_rx_buf[s_rx_head] = data;
                     s_rx_head = next_head;
+                } else {
+                    ++s_rx_overflow;
                 }
             }
             break;
         case DL_UART_IIDX_OVERRUN_ERROR:
+            ++s_hw_overrun;
             DL_UART_clearInterruptStatus(UART_DBG_INST, DL_UART_INTERRUPT_OVERRUN_ERROR);
             while (!DL_UART_isRXFIFOEmpty(UART_DBG_INST)) {
                 (void)DL_UART_receiveData(UART_DBG_INST);
-            }
-            break;
-        case DL_UART_IIDX_TX:
-            while (!DL_UART_isTXFIFOFull(UART_DBG_INST)) {
-                if (s_tx_tail == s_tx_head) {
-                    DL_UART_disableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
-                    s_tx_active = 0u;
-                    break;
-                }
-                DL_UART_transmitData(UART_DBG_INST, s_tx_buf[s_tx_tail]);
-                s_tx_tail = (s_tx_tail + 1u) % BT_TX_BUFFER_SIZE;
             }
             break;
         default:
@@ -130,4 +120,20 @@ int bt_printf(const char *fmt, ...)
 
     bt_uart_send((const uint8_t *)buf, (uint32_t)len);
     return len;
+}
+
+void bt_uart_get_stats(bt_uart_stats_t *stats)
+{
+    if (stats == NULL) {
+        return;
+    }
+
+    stats->rx_overflow = s_rx_overflow;
+    stats->hw_overrun = s_hw_overrun;
+}
+
+void bt_uart_clear_stats(void)
+{
+    s_rx_overflow = 0u;
+    s_hw_overrun = 0u;
 }

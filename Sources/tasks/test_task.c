@@ -55,6 +55,10 @@ typedef struct {
 
 static uint8_t  s_imu_only_mode = 0u;
 static uint32_t s_imu_report_period_ms = MODE_REPORT_PERIOD_MS;
+static uint32_t s_uart0_non_ascii_drop = 0u;
+static uint32_t s_uart0_line_too_long = 0u;
+static uint32_t s_uart1_non_ascii_drop = 0u;
+static uint32_t s_uart1_line_too_long = 0u;
 
 static const mode_key_desc_t k_mode_keys[MODE_KEY_COUNT] = {
     {GPIO_Switch_Key_1_PORT, GPIO_Switch_Key_1_PIN, "key1"},
@@ -826,11 +830,40 @@ static void print_line_raw_status(void)
                 (unsigned)read_gpio_level(GPIO_LED_PIN_1_PORT, GPIO_LED_PIN_1_PIN));
 }
 
+static void print_uart_stats(void)
+{
+    uart_rx_stats_t uart0;
+    bt_uart_stats_t uart1;
+
+    uart_rx_get_stats(&uart0);
+    bt_uart_get_stats(&uart1);
+    uart_printf("uart0 rx_overflow=%lu hw_overrun=%lu non_ascii=%lu line_long=%lu\r\n",
+                (unsigned long)uart0.rx_overflow,
+                (unsigned long)uart0.hw_overrun,
+                (unsigned long)s_uart0_non_ascii_drop,
+                (unsigned long)s_uart0_line_too_long);
+    uart_printf("uart1 rx_overflow=%lu hw_overrun=%lu non_ascii=%lu line_long=%lu\r\n",
+                (unsigned long)uart1.rx_overflow,
+                (unsigned long)uart1.hw_overrun,
+                (unsigned long)s_uart1_non_ascii_drop,
+                (unsigned long)s_uart1_line_too_long);
+}
+
+static void clear_uart_stats(void)
+{
+    uart_rx_clear_stats();
+    bt_uart_clear_stats();
+    s_uart0_non_ascii_drop = 0u;
+    s_uart0_line_too_long = 0u;
+    s_uart1_non_ascii_drop = 0u;
+    s_uart1_line_too_long = 0u;
+}
+
 static void print_help(void)
 {
     uart_printf("test task ready\r\n");
     uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
-    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -1004,6 +1037,15 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
     }
     if (strcmp(line, "lineraw") == 0) {
         print_line_raw_status();
+        return;
+    }
+    if (strcmp(line, "uartstat") == 0) {
+        print_uart_stats();
+        return;
+    }
+    if (strcmp(line, "uartstat,clear") == 0) {
+        clear_uart_stats();
+        uart_printf("uartstat cleared\r\n");
         return;
     }
     if (strcmp(line, "linecfg") == 0) {
@@ -1222,11 +1264,13 @@ static void poll_uart(test_task_ctx_t *ctx)
             continue;
         }
         if (!is_command_char(ch)) {
+            ++s_uart0_non_ascii_drop;
             ctx->rx_len = 0u;
             continue;
         }
 
         if (ctx->rx_len + 1u >= sizeof(ctx->rx_line)) {
+            ++s_uart0_line_too_long;
             ctx->rx_len = 0u;
             uart_printf("cmd parse error: line too long\r\n");
             continue;
@@ -1250,11 +1294,13 @@ static void poll_bt_uart(test_task_ctx_t *ctx)
             continue;
         }
         if (!is_command_char(ch)) {
+            ++s_uart1_non_ascii_drop;
             ctx->bt_rx_len = 0u;
             continue;
         }
 
         if (ctx->bt_rx_len + 1u >= sizeof(ctx->bt_rx_line)) {
+            ++s_uart1_line_too_long;
             ctx->bt_rx_len = 0u;
             continue;
         }

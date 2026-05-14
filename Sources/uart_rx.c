@@ -8,6 +8,8 @@ static volatile uint8_t s_rx_buf[UART_RX_BUFFER_SIZE];
 static volatile uint32_t s_rx_head = 0u;
 static volatile uint32_t s_rx_tail = 0u;
 static volatile uint8_t s_rx_initialized = 0u;
+static volatile uint32_t s_rx_overflow = 0u;
+static volatile uint32_t s_hw_overrun = 0u;
 
 void uart_rx_init(void)
 {
@@ -17,6 +19,8 @@ void uart_rx_init(void)
 
     s_rx_head = 0u;
     s_rx_tail = 0u;
+    s_rx_overflow = 0u;
+    s_hw_overrun = 0u;
     DL_UART_Main_setRXFIFOThreshold(UART0_INST, DL_UART_RX_FIFO_LEVEL_1_4_FULL);
     DL_UART_enableInterrupt(UART0_INST,
                             DL_UART_INTERRUPT_RX |
@@ -43,10 +47,13 @@ void uart_rx_irq_handler(void)
                 if (next_head != s_rx_tail) {
                     s_rx_buf[s_rx_head] = data;
                     s_rx_head = next_head;
+                } else {
+                    ++s_rx_overflow;
                 }
             }
             break;
         case DL_UART_IIDX_OVERRUN_ERROR:
+            ++s_hw_overrun;
             DL_UART_clearInterruptStatus(UART0_INST, DL_UART_INTERRUPT_OVERRUN_ERROR);
             while (!DL_UART_isRXFIFOEmpty(UART0_INST)) {
                 (void)DL_UART_receiveData(UART0_INST);
@@ -67,4 +74,20 @@ int uart_rx_get_char(char *ch)
     *ch = (char)s_rx_buf[s_rx_tail];
     s_rx_tail = (s_rx_tail + 1u) % UART_RX_BUFFER_SIZE;
     return 1;
+}
+
+void uart_rx_get_stats(uart_rx_stats_t *stats)
+{
+    if (stats == NULL) {
+        return;
+    }
+
+    stats->rx_overflow = s_rx_overflow;
+    stats->hw_overrun = s_hw_overrun;
+}
+
+void uart_rx_clear_stats(void)
+{
+    s_rx_overflow = 0u;
+    s_hw_overrun = 0u;
 }
