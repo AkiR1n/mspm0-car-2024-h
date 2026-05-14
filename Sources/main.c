@@ -10,6 +10,24 @@
 #include "sensor_task.h"
 #include "test_task.h"
 
+static void configure_uart_rx_idle_pullups(void)
+{
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_UART0_IOMUX_RX,
+        GPIO_UART0_IOMUX_RX_FUNC,
+        DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_UART_DBG_IOMUX_RX,
+        GPIO_UART_DBG_IOMUX_RX_FUNC,
+        DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+}
+
 static void create_task_or_halt(TaskFunction_t fn,
                                 const char *name,
                                 configSTACK_DEPTH_TYPE stack_words,
@@ -44,6 +62,7 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 int main(void)
 {
     SYSCFG_DL_init();
+    configure_uart_rx_idle_pullups();
     app_state_init();
 
     create_task_or_halt(sensor_task,  "sensor",  512, 6);

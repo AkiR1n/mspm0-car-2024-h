@@ -102,6 +102,13 @@ static char *trim_ascii(char *text)
     return text;
 }
 
+static bool is_command_char(char ch)
+{
+    unsigned char value = (unsigned char)ch;
+
+    return (value >= 0x20u) && (value <= 0x7Eu);
+}
+
 static void sanitize_phase_label(char *dst, size_t dst_size, const char *src)
 {
     size_t dst_index = 0u;
@@ -1214,6 +1221,10 @@ static void poll_uart(test_task_ctx_t *ctx)
             }
             continue;
         }
+        if (!is_command_char(ch)) {
+            ctx->rx_len = 0u;
+            continue;
+        }
 
         if (ctx->rx_len + 1u >= sizeof(ctx->rx_line)) {
             ctx->rx_len = 0u;
@@ -1236,6 +1247,10 @@ static void poll_bt_uart(test_task_ctx_t *ctx)
                 handle_command_line(ctx, ctx->bt_rx_line);
                 ctx->bt_rx_len = 0u;
             }
+            continue;
+        }
+        if (!is_command_char(ch)) {
+            ctx->bt_rx_len = 0u;
             continue;
         }
 

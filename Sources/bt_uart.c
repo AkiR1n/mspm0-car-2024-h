@@ -97,42 +97,13 @@ int bt_uart_get_char(char *ch)
 
 void bt_uart_send(const uint8_t *data, uint32_t len)
 {
-    uint32_t free_space;
-    uint8_t was_active;
-
     if ((s_initialized == 0u) || (len == 0u)) {
         return;
     }
 
-    if (len >= BT_TX_BUFFER_SIZE) {
-        len = BT_TX_BUFFER_SIZE - 1u;
-    }
-
-    /* Disable TX IRQ to prevent race with ISR clearing s_tx_active
-     * after we've added data but before we re-enable the interrupt. */
-    DL_UART_disableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
-    was_active = s_tx_active;
-
-    if (s_tx_head >= s_tx_tail) {
-        free_space = BT_TX_BUFFER_SIZE - 1u - (s_tx_head - s_tx_tail);
-    } else {
-        free_space = s_tx_tail - s_tx_head - 1u;
-    }
-
-    if (len > free_space) {
-        if (was_active != 0u) {
-            DL_UART_enableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
-        }
-        return;
-    }
-
     for (uint32_t i = 0u; i < len; i++) {
-        s_tx_buf[s_tx_head] = data[i];
-        s_tx_head = (s_tx_head + 1u) % BT_TX_BUFFER_SIZE;
+        DL_UART_transmitDataBlocking(UART_DBG_INST, data[i]);
     }
-
-    s_tx_active = 1u;
-    DL_UART_enableInterrupt(UART_DBG_INST, DL_UART_INTERRUPT_TX);
 }
 
 void bt_uart_send_str(const char *str)

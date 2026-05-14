@@ -2,3 +2,5 @@ logs/
 tools/__pycache__/
 build/
 .venv/
+cc-export.txt
+.worktrees/

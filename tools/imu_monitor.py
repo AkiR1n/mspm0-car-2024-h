@@ -6,18 +6,21 @@ Connects to serial, enables IMU-only mode, and plots yaw / gyro / accel in real 
 Usage:
     python tools/imu_monitor.py [port] [baud]
 
-Default: /dev/ttyACM0 @ 115200 (wired J-Link VCOM)
-BT:      python tools/imu_monitor.py /tmp/vBT24 9600
+Default: /dev/ttyACM0 @ 115200 (CMSIS-DAP VCOM)
 """
 
 import sys
 import re
 import time
 import argparse
+import os
 from collections import deque
 
 import serial
 import numpy as np
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mspm0_imu_monitor_mpl")
+
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -26,6 +29,8 @@ WINDOW_POINTS = 300          # history points shown
 PLOT_INTERVAL_MS = 50        # matplotlib update interval
 DATA_TIMEOUT_S = 2.0         # warn if no data for this long
 MAX_YAW_LINES = 2            # how many full rotations before yaw line wraps
+RECONNECT_INTERVAL_S = 2.0   # serial reconnect interval
+IMU_COMMAND_RETRY_S = 1.5    # resend imu,<period> if no imu data arrives
 
 # ── Parse IMU line ────────────────────────────────────────────────
 _RE_IMU = re.compile(r"imu:\s+")
@@ -76,31 +81,71 @@ class ImuData:
 
 # ── Serial reader ─────────────────────────────────────────────────
 class SerialReader:
-    def __init__(self, port: str, baud: int, auto_imu: bool = True):
+    def __init__(self, port: str, baud: int, auto_imu: bool = True,
+                 reconnect: bool = True):
+        self.port = port
+        self.baud = baud
+        self.auto_imu = auto_imu
+        self.reconnect = reconnect
         self.data = ImuData()
-        self._ser = serial.Serial(port, baud, timeout=0.1)
+        self._ser: serial.Serial | None = None
         self._buf = b""
         self._last_line_time = time.time()
+        self._last_connect_attempt = 0.0
+        self._last_imu_command = 0.0
         self._imu_active = False
+        self.status = "disconnected"
+        self._connect(initial=True)
 
-        if auto_imu:
-            # Wait for connection to settle, then send 'imu' with retries
-            warmup = 3.0 if baud <= 9600 else 0.5
-            print(f"Warming up ({warmup:.0f}s)...")
-            time.sleep(warmup)
-            self._enable_imu_mode()
+    def _imu_period_ms(self) -> int:
+        return 200 if self.baud <= 9600 else 50
+
+    def _connect(self, initial: bool = False) -> bool:
+        now = time.time()
+        if not initial and (now - self._last_connect_attempt) < RECONNECT_INTERVAL_S:
+            return False
+        self._last_connect_attempt = now
+
+        try:
+            self._ser = serial.Serial(self.port, self.baud, timeout=0.1)
+            self._buf = b""
+            self._imu_active = False
+            self.status = "connected"
+            print(f"Connected to {self.port} @ {self.baud}")
+            if self.auto_imu:
+                warmup = 3.0 if self.baud <= 9600 else 0.5
+                print(f"Warming up ({warmup:.1f}s)...")
+                time.sleep(warmup)
+                self._enable_imu_mode()
+            return True
+        except (OSError, serial.SerialException) as e:
+            self.status = f"waiting: {e}"
+            if initial and not self.reconnect:
+                raise
+            if initial:
+                print(f"Waiting for {self.port}: {e}")
+            return False
+
+    def _disconnect(self, reason: str):
+        if self._ser is not None:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+        self._ser = None
+        self._imu_active = False
+        self.status = f"disconnected: {reason}"
 
     def _enable_imu_mode(self, retries: int = 5):
         """Send 'imu,<period>' command and wait for data."""
-        baud = self._ser.baudrate
-        period_ms = 200 if baud <= 9600 else 50
-        cmd = f"imu,{period_ms}\r\n".encode()
+        period_ms = self._imu_period_ms()
         # Slow links need more time for ack to arrive
-        wait_s = 1.5 if baud <= 9600 else 0.3
+        wait_s = 1.5 if self.baud <= 9600 else 0.3
         print(f"IMU period: {period_ms}ms ({1000/period_ms:.0f} Hz)")
 
         for i in range(retries):
-            self._ser.write(cmd)
+            if not self._send_imu_command(force=True):
+                return
             self._drain_buffer(check_imu_ack=True)
             # Wait and drain again for late-arriving data
             time.sleep(wait_s)
@@ -113,8 +158,25 @@ class SerialReader:
                 time.sleep(1.0)
         print("Warning: no IMU data received (check connection)")
 
+    def _send_imu_command(self, force: bool = False) -> bool:
+        if self._ser is None:
+            return False
+        now = time.time()
+        if not force and (now - self._last_imu_command) < IMU_COMMAND_RETRY_S:
+            return True
+        cmd = f"imu,{self._imu_period_ms()}\r\n".encode()
+        try:
+            self._ser.write(cmd)
+            self._last_imu_command = now
+            return True
+        except (OSError, serial.SerialException) as e:
+            self._disconnect(str(e))
+            return False
+
     def _drain_buffer(self, check_imu_ack: bool = False):
         """Read available data without blocking long."""
+        if self._ser is None:
+            return
         try:
             chunk = self._ser.read(256)
             if chunk:
@@ -128,26 +190,41 @@ class SerialReader:
                     if fields:
                         self.data.append(fields)
                         self._last_line_time = time.time()
-        except (OSError, serial.SerialException):
-            pass
+                        self.status = "streaming"
+        except (OSError, serial.SerialException) as e:
+            self._disconnect(str(e))
 
     def read_all(self):
         """Call from main thread. Returns number of new lines parsed."""
+        if self._ser is None:
+            if self.reconnect:
+                self._connect()
+            return 0
+
         count = len(self.data.t)
         self._drain_buffer()
+
+        if self.auto_imu and self.stale_sec() > DATA_TIMEOUT_S:
+            self._send_imu_command()
+
         return len(self.data.t) - count
 
     def stale_sec(self) -> float:
         return time.time() - self._last_line_time
 
+    def connected(self) -> bool:
+        return self._ser is not None
+
     def close(self):
         try:
-            self._ser.write(b"imu\r\n")
-            time.sleep(0.05)
+            if self._ser is not None:
+                self._ser.write(b"imu\r\n")
+                time.sleep(0.05)
         except Exception:
             pass
         try:
-            self._ser.close()
+            if self._ser is not None:
+                self._ser.close()
         except Exception:
             pass
 
@@ -301,9 +378,10 @@ class ImuPlot:
 
         # ── Status text ──
         stale = reader.stale_sec()
-        color = "#f44336" if stale > DATA_TIMEOUT_S else "#ccc"
+        connected = reader.connected()
         lines = [
-            f"Port: {reader._ser.port}",
+            f"Port: {reader.port}",
+            f"State: {reader.status}",
             f"",
             f"yaw   {current_yaw:7.1f} deg",
             f"gz    {data.gz[-1] if data.gz else 0:7.2f} dps",
@@ -323,10 +401,11 @@ class ImuPlot:
             f"sms   {data.sms[-1] if data.sms else 0:.0f} ms",
             f"",
             f"data {len(data.t)} pts",
+            f"link  {'OK' if connected else '--'}",
             f"stale {stale:.1f}s" if stale > 0.1 else "",
         ]
         self.status_text.set_text("\n".join(lines))
-        if reader.stale_sec() > DATA_TIMEOUT_S:
+        if (not connected) or (reader.stale_sec() > DATA_TIMEOUT_S):
             self.status_text.set_color("#f44336")
         else:
             self.status_text.set_color("#ccc")
@@ -338,18 +417,12 @@ class ImuPlot:
 # ── Main ──────────────────────────────────────────────────────────
 def connect_serial(port: str, baud: int, auto_imu: bool, retry: bool) -> SerialReader:
     """Connect to serial port, with optional retry loop."""
-    while True:
-        print(f"Connecting to {port} @ {baud} ...")
-        try:
-            return SerialReader(port, baud, auto_imu=auto_imu)
-        except (serial.SerialException, FileNotFoundError) as e:
-            if retry:
-                print(f"  {e}")
-                print(f"  Waiting for port... (Ctrl+C to cancel)")
-                time.sleep(2)
-            else:
-                print(f"ERROR: {e}")
-                sys.exit(1)
+    print(f"Connecting to {port} @ {baud} ...")
+    try:
+        return SerialReader(port, baud, auto_imu=auto_imu, reconnect=retry)
+    except (serial.SerialException, FileNotFoundError) as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(description="IMU real-time monitor")
@@ -361,10 +434,13 @@ def main():
                         help="Don't send 'imu' command on connect")
     parser.add_argument("--retry", action="store_true", default=None,
                         help="Keep retrying if port not available")
+    parser.add_argument("--no-retry", action="store_true",
+                        help="Exit instead of waiting/reconnecting on serial errors")
     args = parser.parse_args()
 
-    # Auto-enable retry for non-ACM ports (BT virtual ports etc.)
-    retry = args.retry if args.retry is not None else ("ACM" not in args.port.upper())
+    retry = True if args.retry is None else args.retry
+    if args.no_retry:
+        retry = False
 
     reader = connect_serial(args.port, args.baud,
                             auto_imu=not args.no_send_imu,
