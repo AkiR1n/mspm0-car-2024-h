@@ -558,7 +558,7 @@ class Dashboard(QtWidgets.QMainWindow):
     def _build_left_panel(self, outer, port: str, baud: int, auto_imu: bool) -> None:
         panel = QtWidgets.QFrame()
         panel.setObjectName("sidePanel")
-        panel.setFixedWidth(310)
+        panel.setFixedWidth(330)
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -600,24 +600,17 @@ class Dashboard(QtWidgets.QMainWindow):
 
         cmd_group = QtWidgets.QGroupBox("Commands")
         cmd_layout = QtWidgets.QVBoxLayout(cmd_group)
-        buttons = QtWidgets.QGridLayout()
-        for idx, (label, cmd) in enumerate([
-            ("Stop", "stop"),
-            ("Show PID", "showpid"),
-            ("UART Stat", "uartstat"),
-            ("IMU 50ms", "imu,50"),
-            ("IMU toggle", "imu"),
-            ("Line Raw", "lineraw"),
-        ]):
-            button = QtWidgets.QPushButton(label)
-            button.clicked.connect(lambda _, c=cmd: self.send_command(c))
-            buttons.addWidget(button, idx // 2, idx % 2)
-        cmd_layout.addLayout(buttons)
+        cmd_layout.setContentsMargins(8, 8, 8, 8)
+        cmd_layout.setSpacing(6)
+        tabs = QtWidgets.QTabWidget()
 
-        basic_group = QtWidgets.QGroupBox("Basic Tests")
-        basic_layout = QtWidgets.QVBoxLayout(basic_group)
+        basic_tab = QtWidgets.QWidget()
+        basic_layout = QtWidgets.QVBoxLayout(basic_tab)
+        basic_layout.setContentsMargins(8, 8, 8, 8)
+        basic_layout.setSpacing(8)
 
         straight_form = QtWidgets.QFormLayout()
+        straight_form.setContentsMargins(0, 0, 0, 0)
         self.straight_distance = QtWidgets.QDoubleSpinBox()
         self.straight_speed = QtWidgets.QDoubleSpinBox()
         self.straight_distance.setRange(0.05, 2.50)
@@ -636,6 +629,7 @@ class Dashboard(QtWidgets.QMainWindow):
         basic_layout.addWidget(straight_btn)
 
         line_form = QtWidgets.QFormLayout()
+        line_form.setContentsMargins(0, 0, 0, 0)
         self.line_speed = QtWidgets.QDoubleSpinBox()
         self.line_distance = QtWidgets.QDoubleSpinBox()
         self.line_speed.setRange(0.05, 0.70)
@@ -657,42 +651,80 @@ class Dashboard(QtWidgets.QMainWindow):
         line_row.addWidget(line_btn)
         line_row.addWidget(line_stop_btn)
         basic_layout.addLayout(line_row)
-        cmd_layout.addWidget(basic_group)
+        basic_layout.addStretch(1)
+        tabs.addTab(basic_tab, "Basic")
+
+        manual_tab = QtWidgets.QWidget()
+        manual_layout = QtWidgets.QVBoxLayout(manual_tab)
+        manual_layout.setContentsMargins(8, 8, 8, 8)
+        manual_layout.setSpacing(8)
 
         speed_form = QtWidgets.QFormLayout()
-        self.left_speed = QtWidgets.QDoubleSpinBox()
-        self.right_speed = QtWidgets.QDoubleSpinBox()
-        for spin in (self.left_speed, self.right_speed):
-            spin.setDecimals(3)
-            spin.setRange(-1.2, 1.2)
-            spin.setSingleStep(0.05)
-        speed_form.addRow("Left m/s", self.left_speed)
-        speed_form.addRow("Right m/s", self.right_speed)
-        cmd_layout.addLayout(speed_form)
-        speed_btn = QtWidgets.QPushButton("Set Wheel Speed")
+        speed_form.setContentsMargins(0, 0, 0, 0)
+        self.wheel_base_speed = QtWidgets.QDoubleSpinBox()
+        self.left_ratio = QtWidgets.QSpinBox()
+        self.right_ratio = QtWidgets.QSpinBox()
+        self.wheel_base_speed.setDecimals(2)
+        self.wheel_base_speed.setRange(0.00, 0.80)
+        self.wheel_base_speed.setSingleStep(0.05)
+        self.wheel_base_speed.setValue(0.20)
+        for spin in (self.left_ratio, self.right_ratio):
+            spin.setRange(-150, 150)
+            spin.setSingleStep(5)
+            spin.setValue(100)
+            spin.setSuffix("%")
+        speed_form.addRow("Base m/s", self.wheel_base_speed)
+        speed_form.addRow("Left", self.left_ratio)
+        speed_form.addRow("Right", self.right_ratio)
+        manual_layout.addLayout(speed_form)
+        speed_btn = QtWidgets.QPushButton("Set Wheel Ratio")
         speed_btn.clicked.connect(self.send_speed_command)
-        cmd_layout.addWidget(speed_btn)
+        manual_layout.addWidget(speed_btn)
 
         twist_form = QtWidgets.QFormLayout()
+        twist_form.setContentsMargins(0, 0, 0, 0)
         self.twist_v = QtWidgets.QDoubleSpinBox()
         self.twist_w = QtWidgets.QDoubleSpinBox()
         self.twist_v.setRange(-1.0, 1.0)
         self.twist_w.setRange(-8.0, 8.0)
-        self.twist_v.setDecimals(3)
-        self.twist_w.setDecimals(3)
+        self.twist_v.setDecimals(2)
+        self.twist_w.setDecimals(2)
         self.twist_v.setSingleStep(0.05)
         self.twist_w.setSingleStep(0.2)
         twist_form.addRow("v m/s", self.twist_v)
         twist_form.addRow("w rad/s", self.twist_w)
-        cmd_layout.addLayout(twist_form)
+        manual_layout.addLayout(twist_form)
         twist_btn = QtWidgets.QPushButton("Set Twist")
         twist_btn.clicked.connect(self.send_twist_command)
-        cmd_layout.addWidget(twist_btn)
+        manual_layout.addWidget(twist_btn)
+        manual_layout.addStretch(1)
+        tabs.addTab(manual_tab, "Manual")
+
+        tools_tab = QtWidgets.QWidget()
+        tools_layout = QtWidgets.QVBoxLayout(tools_tab)
+        tools_layout.setContentsMargins(8, 8, 8, 8)
+        tools_layout.setSpacing(8)
+        buttons = QtWidgets.QGridLayout()
+        for idx, (label, cmd) in enumerate([
+            ("Stop", "stop"),
+            ("Show PID", "showpid"),
+            ("UART Stat", "uartstat"),
+            ("IMU 50ms", "imu,50"),
+            ("IMU toggle", "imu"),
+            ("Line Raw", "lineraw"),
+        ]):
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(lambda _, c=cmd: self.send_command(c))
+            buttons.addWidget(button, idx // 2, idx % 2)
+        tools_layout.addLayout(buttons)
 
         self.raw_cmd = QtWidgets.QLineEdit()
         self.raw_cmd.setPlaceholderText("raw command")
         self.raw_cmd.returnPressed.connect(self.send_raw_command)
-        cmd_layout.addWidget(self.raw_cmd)
+        tools_layout.addWidget(self.raw_cmd)
+        tools_layout.addStretch(1)
+        tabs.addTab(tools_tab, "Tools")
+        cmd_layout.addWidget(tabs)
         layout.addWidget(cmd_group)
 
         self.log = QtWidgets.QPlainTextEdit()
@@ -788,7 +820,10 @@ class Dashboard(QtWidgets.QMainWindow):
             self.log.appendPlainText(f"> {command}")
 
     def send_speed_command(self) -> None:
-        self.send_command(f"spd,{self.left_speed.value():.3f},{self.right_speed.value():.3f}")
+        base = self.wheel_base_speed.value()
+        left = base * (self.left_ratio.value() / 100.0)
+        right = base * (self.right_ratio.value() / 100.0)
+        self.send_command(f"spd,{left:.3f},{right:.3f}")
 
     def send_twist_command(self) -> None:
         self.send_command(f"twist,{self.twist_v.value():.3f},{self.twist_w.value():.3f}")
