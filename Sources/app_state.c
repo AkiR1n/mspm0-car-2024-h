@@ -38,6 +38,7 @@ void app_state_init(void)
     s_state.challenge.hold_heading_deg = 0.0f;
     s_state.challenge.heading_error_deg = 0.0f;
     s_state.challenge.phase_distance_m = 0.0f;
+    s_state.challenge.target_distance_m = 0.0f;
     s_state.challenge.target_speed_mps = 0.0f;
     s_state.challenge.last_event = APP_EVENT_NONE;
     s_state.challenge.last_event_ms = 0u;
@@ -208,6 +209,10 @@ void app_state_get_snapshot(app_state_snapshot_t *snapshot)
 const char *app_mode_name(app_mode_t mode)
 {
     switch (mode) {
+    case APP_MODE_LINE_TEST:
+        return "LINE";
+    case APP_MODE_STRAIGHT_TEST:
+        return "STRAIGHT";
     case APP_MODE_MAIN:
         return "MAIN";
     case APP_MODE_WHEEL_SPEED_TEST:

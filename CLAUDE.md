@@ -228,6 +228,8 @@ python3 tools/imu_monitor.py /dev/ttyACM0 115200
 | `l%,r%` | `20,20` | 开环占空比 0–100%（WHEEL_TEST） |
 | `spd,l,r` | `spd,0.3,0.3` | 左右轮闭环速度 m/s |
 | `twist,v,w` | `twist,0.3,0` | 差速底盘 v(m/s), w(rad/s) |
+| `straight[,dist[,v]]` | `straight,1.0,0.35` | 无循迹直线测试，编码器距离 + IMU 航向保持 |
+| `line[,v[,dist]]` | `line,0.18,1.2` | 7 路循迹测试，`dist=0` 时持续运行直到 `stop` |
 | `stop` | — | 停车 |
 | `q1` … `q4` | — | 选择题号 |
 | `run` / `main` | — | 启动赛题 |

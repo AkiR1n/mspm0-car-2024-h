@@ -26,6 +26,7 @@ PAIR_RE = re.compile(r"(?P<name>\w+)=\((?P<a>-?\d+(?:\.\d+)?),(?P<b>-?\d+(?:\.\d
 INT_PAIR_RE = re.compile(r"(?P<name>\w+)=\((?P<a>-?\d+),(?P<b>-?\d+)\)")
 FIELD_RE = re.compile(r"(?P<name>[A-Za-z_][\w/]*)=(?P<value>0x[0-9A-Fa-f]+|-?\d+(?:\.\d+)?|[A-Za-z0-9_./-]+)")
 IMU_FIELD_RE = re.compile(r"(?P<name>\w+)=(?P<value>-?\d+(?:\.\d+)?)")
+DIST_RE = re.compile(r"dist=(?P<now>-?\d+(?:\.\d+)?)/(?P<target>-?\d+(?:\.\d+)?)")
 
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -62,9 +63,12 @@ class VehicleState:
     last_update_time: float = 0.0
 
     mode: str = "--"
+    main_state: str = "--"
     stop: int = 0
     tick: int = 0
     irq_per_s: int = 0
+    distance_m: float = 0.0
+    target_distance_m: float = 0.0
 
     cmd_left_speed: float = 0.0
     cmd_right_speed: float = 0.0
@@ -88,6 +92,8 @@ class VehicleState:
     imu_ready: int = 0
     imu_stable: int = 0
     yaw: float = 0.0
+    hold_heading: float = 0.0
+    heading_error: float = 0.0
     yaw_dmp: float = 0.0
     yaw_rel: float = 0.0
     gz: float = 0.0
@@ -136,6 +142,8 @@ def update_from_status_line(state: VehicleState, line: str) -> bool:
     fields = {m.group("name"): m.group("value") for m in FIELD_RE.finditer(line)}
     if "mode" in fields:
         state.mode = fields["mode"]
+    if "state" in fields:
+        state.main_state = fields["state"]
     state.stop = parse_int(fields.get("stop"), state.stop)
     state.tick = parse_int(fields.get("tick"), state.tick)
     state.irq_per_s = parse_int(fields.get("irq/s"), state.irq_per_s)
@@ -143,7 +151,14 @@ def update_from_status_line(state: VehicleState, line: str) -> bool:
     state.line_position = parse_int(fields.get("pos"), state.line_position)
     state.imu_up_ms = parse_int(fields.get("up"), state.imu_up_ms)
     state.yaw = parse_float(fields.get("yaw"), state.yaw)
+    state.hold_heading = parse_float(fields.get("hold"), state.hold_heading)
+    state.heading_error = parse_float(fields.get("err"), state.heading_error)
     state.gz = parse_float(fields.get("gz"), state.gz)
+
+    dist_match = DIST_RE.search(line)
+    if dist_match:
+        state.distance_m = parse_float(dist_match.group("now"), state.distance_m)
+        state.target_distance_m = parse_float(dist_match.group("target"), state.target_distance_m)
 
     if "line" in fields:
         state.line = fields["line"]
@@ -753,7 +768,7 @@ class Dashboard(QtWidgets.QMainWindow):
 
     def update_view(self) -> None:
         s = self.state
-        self.mode_card.set_values(s.mode, f"stop={s.stop}  port={s.port}")
+        self.mode_card.set_values(s.mode, f"state={s.main_state}  stop={s.stop}  port={s.port}")
         self.speed_card.set_values(
             f"{s.measured_left_speed:.3f} / {s.measured_right_speed:.3f}",
             f"target {s.target_left_speed:.3f} / {s.target_right_speed:.3f} m/s",
@@ -782,6 +797,8 @@ class Dashboard(QtWidgets.QMainWindow):
         self.detail.setPlainText(
             "\n".join([
                 f"mode={s.mode} tick={s.tick} irq/s={s.irq_per_s}",
+                f"distance={s.distance_m:.3f}/{s.target_distance_m:.3f} "
+                f"hold={s.hold_heading:.1f} err={s.heading_error:.1f}",
                 f"speed target=({s.target_left_speed:.3f},{s.target_right_speed:.3f}) "
                 f"meas=({s.measured_left_speed:.3f},{s.measured_right_speed:.3f}) "
                 f"duty=({s.applied_left_duty:.3f},{s.applied_right_duty:.3f})",

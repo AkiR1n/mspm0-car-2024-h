@@ -22,6 +22,16 @@
 #define MAIN_GAP_W_LIMIT_RADPS            1.70f
 #define MAIN_GAP_COUNT_KP                 0.0025f
 #define MAIN_GAP_SPEED_KD                 0.55f
+#define MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M 0.50f
+#define MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS  0.25f
+#define MAIN_BASIC_STRAIGHT_END_SPEED_MPS      0.10f
+#define MAIN_BASIC_LINE_DEFAULT_SPEED_MPS      0.18f
+#define MAIN_BASIC_LINE_SEARCH_SPEED_MPS       0.08f
+#define MAIN_BASIC_MIN_DISTANCE_M              0.05f
+#define MAIN_BASIC_MAX_DISTANCE_M              2.50f
+#define MAIN_BASIC_MIN_SPEED_MPS               0.05f
+#define MAIN_BASIC_MAX_SPEED_MPS               0.70f
+#define MAIN_BASIC_LINE_W_LIMIT_RADPS          2.20f
 #define MAIN_ARC_W_LIMIT_RADPS            2.40f
 #define MAIN_ARC_SEARCH_SPEED_MPS         0.12f
 #define MAIN_ARC_SEARCH_W_RADPS           1.10f
@@ -68,6 +78,7 @@ typedef struct {
 
 typedef struct {
     uint8_t          active;
+    app_mode_t       active_mode;
     app_challenge_t  challenge_active;
     uint8_t          sequence_index;
     uint8_t          lap_index;
@@ -83,6 +94,8 @@ typedef struct {
     float            arc_last_error;
     float            current_v_mps;
     float            phase_distance_m;
+    float            target_distance_m;
+    float            cruise_speed_mps;
     float            geometry_heading_deg;
     float            hold_heading_deg;
     float            heading_error_deg;
@@ -362,6 +375,28 @@ static float select_gap_speed(const phase_descriptor_t *phase, float phase_dista
     return MAIN_GAP_CRUISE_SPEED_MPS;
 }
 
+static float select_basic_straight_speed(float target_speed_mps, float remaining_m)
+{
+    target_speed_mps = clampf(target_speed_mps,
+                              MAIN_BASIC_MIN_SPEED_MPS,
+                              MAIN_BASIC_MAX_SPEED_MPS);
+
+    if (remaining_m <= 0.0f) {
+        return 0.0f;
+    }
+    if (remaining_m <= 0.10f) {
+        return clampf(target_speed_mps,
+                      MAIN_BASIC_MIN_SPEED_MPS,
+                      MAIN_BASIC_STRAIGHT_END_SPEED_MPS);
+    }
+    if (remaining_m < 0.30f) {
+        return lerpf(MAIN_BASIC_STRAIGHT_END_SPEED_MPS,
+                     target_speed_mps,
+                     clampf((remaining_m - 0.10f) / 0.20f, 0.0f, 1.0f));
+    }
+    return target_speed_mps;
+}
+
 static float select_arc_zone_speed(const arc_profile_t *profile, float phase_distance_m)
 {
     if (phase_distance_m < profile->front_end_m) {
@@ -398,6 +433,21 @@ static float get_arc_inner_bias_w(const arc_profile_t *profile, float phase_dist
     return (float)profile->inner_bias_sign * profile->inner_bias_w_radps * t;
 }
 
+static float get_phase_target_distance_m(const phase_descriptor_t *phase)
+{
+    if (phase == NULL) {
+        return 0.0f;
+    }
+    if (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) {
+        return phase->nominal_distance_m;
+    }
+    if ((phase->action == APP_PHASE_ACTION_ARC_TRACK) &&
+        (phase->arc_profile != NULL)) {
+        return phase->arc_profile->expected_length_m;
+    }
+    return 0.0f;
+}
+
 static void publish_runtime_state(const main_task_ctx_t *ctx,
                                   app_challenge_info_t *challenge,
                                   const phase_descriptor_t *phase,
@@ -415,8 +465,34 @@ static void publish_runtime_state(const main_task_ctx_t *ctx,
     challenge->hold_heading_deg = ctx->hold_heading_deg;
     challenge->heading_error_deg = ctx->heading_error_deg;
     challenge->phase_distance_m = ctx->phase_distance_m;
+    challenge->target_distance_m = get_phase_target_distance_m(phase);
     challenge->target_speed_mps = ctx->target_speed_mps;
     app_state_set_challenge(challenge);
+    app_state_set_main_state(ctx->state);
+}
+
+static void publish_basic_runtime_state(const main_task_ctx_t *ctx,
+                                        app_phase_action_t action,
+                                        app_challenge_phase_t phase,
+                                        app_challenge_status_t status)
+{
+    app_challenge_info_t challenge;
+
+    app_state_get_challenge(&challenge);
+    challenge.active = APP_CHALLENGE_NONE;
+    challenge.status = status;
+    challenge.phase = phase;
+    challenge.action = action;
+    challenge.checkpoint_count = 0u;
+    challenge.lap_index = 1u;
+    challenge.lap_total = 1u;
+    challenge.geometry_heading_deg = ctx->geometry_heading_deg;
+    challenge.hold_heading_deg = ctx->hold_heading_deg;
+    challenge.heading_error_deg = ctx->heading_error_deg;
+    challenge.phase_distance_m = ctx->phase_distance_m;
+    challenge.target_distance_m = ctx->target_distance_m;
+    challenge.target_speed_mps = ctx->target_speed_mps;
+    app_state_set_challenge(&challenge);
     app_state_set_main_state(ctx->state);
 }
 
@@ -429,6 +505,7 @@ static void reset_main_context(main_task_ctx_t *ctx,
     }
 
     memset(ctx, 0, sizeof(*ctx));
+    ctx->active_mode = APP_MODE_STOP;
     ctx->challenge_active = APP_CHALLENGE_NONE;
     ctx->lap_index = 1u;
     ctx->state = APP_MAIN_STATE_IDLE;
@@ -452,6 +529,7 @@ static void enter_phase(main_task_ctx_t *ctx,
     ctx->phase_start_right_count = feedback->right_count;
     ctx->arc_last_error = (float)feedback->line_position;
     ctx->phase_distance_m = 0.0f;
+    ctx->target_distance_m = get_phase_target_distance_m(phase);
     ctx->geometry_heading_deg = phase->geometry_heading_deg;
     ctx->hold_heading_deg = feedback->yaw_deg;
     ctx->heading_error_deg = 0.0f;
@@ -499,6 +577,7 @@ static void finish_challenge(main_task_ctx_t *ctx,
     ctx->current_v_mps = 0.0f;
     ctx->target_speed_mps = 0.0f;
     ctx->phase_distance_m = 0.0f;
+    ctx->target_distance_m = 0.0f;
     ctx->heading_error_deg = 0.0f;
     ctx->hold_heading_deg = 0.0f;
     ctx->geometry_heading_deg = 0.0f;
@@ -517,6 +596,7 @@ static void finish_challenge(main_task_ctx_t *ctx,
     challenge->hold_heading_deg = 0.0f;
     challenge->heading_error_deg = 0.0f;
     challenge->phase_distance_m = 0.0f;
+    challenge->target_distance_m = 0.0f;
     challenge->target_speed_mps = 0.0f;
     app_state_set_challenge(challenge);
     app_state_set_main_state(APP_MAIN_STATE_STOPPED);
@@ -618,6 +698,198 @@ static float run_arc_track(main_task_ctx_t *ctx,
     return MAIN_ARC_SEARCH_SPEED_MPS;
 }
 
+static void enter_basic_mode(main_task_ctx_t *ctx,
+                             app_mode_t mode,
+                             const chassis_command_t *requested_command,
+                             const chassis_feedback_t *feedback,
+                             line_controller_t *line_controller,
+                             yaw_controller_t *yaw_controller)
+{
+    float requested_speed;
+    float requested_distance;
+
+    reset_main_context(ctx, line_controller, yaw_controller);
+    ctx->active = 1u;
+    ctx->active_mode = mode;
+    ctx->challenge_active = APP_CHALLENGE_NONE;
+    ctx->phase_start_left_count = feedback->left_count;
+    ctx->phase_start_right_count = feedback->right_count;
+    ctx->phase_distance_m = 0.0f;
+    ctx->hold_heading_deg = feedback->yaw_deg;
+    ctx->geometry_heading_deg = feedback->yaw_deg;
+    ctx->heading_error_deg = 0.0f;
+    ctx->arc_last_error = (float)feedback->line_position;
+    ctx->arc_has_seen_line = (feedback->line_detected != 0u) ? 1u : 0u;
+
+    requested_speed = (requested_command != NULL) ? requested_command->v_mps : 0.0f;
+    requested_distance = (requested_command != NULL) ? requested_command->left_speed_mps : 0.0f;
+
+    if (mode == APP_MODE_STRAIGHT_TEST) {
+        if (requested_distance <= 0.0f) {
+            requested_distance = MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M;
+        }
+        if (requested_speed <= 0.0f) {
+            requested_speed = MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS;
+        }
+        ctx->target_distance_m = clampf(requested_distance,
+                                        MAIN_BASIC_MIN_DISTANCE_M,
+                                        MAIN_BASIC_MAX_DISTANCE_M);
+        ctx->cruise_speed_mps = clampf(requested_speed,
+                                       MAIN_BASIC_MIN_SPEED_MPS,
+                                       MAIN_BASIC_MAX_SPEED_MPS);
+        ctx->target_speed_mps = 0.0f;
+        ctx->state = APP_MAIN_STATE_GAP;
+        publish_basic_runtime_state(ctx,
+                                    APP_PHASE_ACTION_GAP_TRAVERSE,
+                                    APP_CHALLENGE_PHASE_GAP_AB,
+                                    APP_CHALLENGE_STATUS_RUNNING);
+    } else {
+        if (requested_speed <= 0.0f) {
+            requested_speed = MAIN_BASIC_LINE_DEFAULT_SPEED_MPS;
+        }
+        ctx->target_distance_m = clampf(requested_distance,
+                                        0.0f,
+                                        MAIN_BASIC_MAX_DISTANCE_M);
+        ctx->cruise_speed_mps = clampf(requested_speed,
+                                       MAIN_BASIC_MIN_SPEED_MPS,
+                                       MAIN_BASIC_MAX_SPEED_MPS);
+        ctx->target_speed_mps = ctx->cruise_speed_mps;
+        ctx->state = (feedback->line_detected != 0u)
+                         ? APP_MAIN_STATE_ARC_TRACK
+                         : APP_MAIN_STATE_ARC_LOST_LEFT;
+        publish_basic_runtime_state(ctx,
+                                    APP_PHASE_ACTION_ARC_TRACK,
+                                    APP_CHALLENGE_PHASE_ARC_BC,
+                                    APP_CHALLENGE_STATUS_RUNNING);
+    }
+
+    app_state_emit_event(APP_EVENT_START);
+}
+
+static float update_heading_hold(main_task_ctx_t *ctx,
+                                 yaw_controller_t *yaw_controller,
+                                 const chassis_feedback_t *feedback)
+{
+    if ((feedback->imu_ready != 0u) && (feedback->imu_stable != 0u)) {
+        float pid_target;
+
+        ctx->heading_error_deg = wrap_angle_deg(ctx->hold_heading_deg - feedback->yaw_deg);
+        pid_target = feedback->yaw_deg + ctx->heading_error_deg;
+        return YawController_Update(yaw_controller,
+                                    pid_target,
+                                    feedback->yaw_deg,
+                                    feedback->gyro_z,
+                                    MAIN_DT_S);
+    }
+
+    ctx->heading_error_deg = 0.0f;
+    YawController_Reset(yaw_controller);
+    return 0.0f;
+}
+
+static void stop_basic_mode(main_task_ctx_t *ctx,
+                            line_controller_t *line_controller,
+                            yaw_controller_t *yaw_controller)
+{
+    chassis_command_t command = {0};
+
+    ctx->current_v_mps = 0.0f;
+    ctx->target_speed_mps = 0.0f;
+    ctx->state = APP_MAIN_STATE_STOPPED;
+    publish_basic_runtime_state(ctx,
+                                APP_PHASE_ACTION_STOP_AND_SIGNAL,
+                                APP_CHALLENGE_PHASE_STOP_B,
+                                APP_CHALLENGE_STATUS_DONE);
+    app_state_emit_event(APP_EVENT_STOP);
+
+    command.stop = 1u;
+    command.enable_closed_loop = 0u;
+    app_state_set_command(&command);
+    app_state_set_mode(APP_MODE_STOP);
+    reset_main_context(ctx, line_controller, yaw_controller);
+}
+
+static void run_basic_straight(main_task_ctx_t *ctx,
+                               yaw_controller_t *yaw_controller,
+                               const chassis_feedback_t *feedback,
+                               chassis_command_t *command)
+{
+    float remaining_m;
+    float heading_term;
+    float count_error;
+    float speed_error;
+
+    ctx->phase_distance_m = get_phase_distance_m(ctx, feedback);
+    remaining_m = ctx->target_distance_m - ctx->phase_distance_m;
+    heading_term = update_heading_hold(ctx, yaw_controller, feedback);
+
+    count_error = (float)(feedback->left_count - ctx->phase_start_left_count) -
+                  (float)(feedback->right_count - ctx->phase_start_right_count);
+    speed_error = feedback->left_speed_mps - feedback->right_speed_mps;
+
+    command->stop = 0u;
+    command->enable_closed_loop = 1u;
+    command->w_radps = clampf(heading_term +
+                                  (count_error * MAIN_GAP_COUNT_KP) +
+                                  (speed_error * MAIN_GAP_SPEED_KD),
+                              -MAIN_GAP_W_LIMIT_RADPS,
+                              MAIN_GAP_W_LIMIT_RADPS);
+    ctx->target_speed_mps = select_basic_straight_speed(ctx->cruise_speed_mps, remaining_m);
+    ctx->current_v_mps = apply_speed_slew(ctx->current_v_mps, ctx->target_speed_mps);
+    command->v_mps = ctx->current_v_mps;
+    ctx->state = APP_MAIN_STATE_GAP;
+}
+
+static void run_basic_line(main_task_ctx_t *ctx,
+                           line_controller_t *line_controller,
+                           const chassis_feedback_t *feedback,
+                           chassis_command_t *command)
+{
+    ctx->phase_distance_m = get_phase_distance_m(ctx, feedback);
+    ctx->heading_error_deg = 0.0f;
+
+    command->stop = 0u;
+    command->enable_closed_loop = 1u;
+
+    if (feedback->line_detected != 0u) {
+        float line_error = (float)feedback->line_position;
+        float control_w;
+        float target_speed_mps;
+
+        ctx->arc_has_seen_line = 1u;
+        ctx->arc_last_error = line_error;
+        ctx->line_missing_ms = 0u;
+        ctx->state = APP_MAIN_STATE_ARC_TRACK;
+
+        control_w = LineController_Update(line_controller,
+                                          line_error,
+                                          feedback->line_bits,
+                                          feedback->line_detected,
+                                          MAIN_DT_S);
+        command->w_radps = clampf(control_w,
+                                  -MAIN_BASIC_LINE_W_LIMIT_RADPS,
+                                  MAIN_BASIC_LINE_W_LIMIT_RADPS);
+        target_speed_mps = select_arc_speed_limit(ctx->cruise_speed_mps, line_error);
+        ctx->target_speed_mps = target_speed_mps;
+        ctx->current_v_mps = apply_speed_slew(ctx->current_v_mps, target_speed_mps);
+    } else {
+        LineController_Reset(line_controller);
+        ctx->line_missing_ms = (uint16_t)(ctx->line_missing_ms + MAIN_TASK_PERIOD_MS);
+        if ((ctx->arc_has_seen_line == 0u) || (ctx->arc_last_error <= 0.0f)) {
+            command->w_radps = MAIN_ARC_SEARCH_W_RADPS;
+            ctx->state = APP_MAIN_STATE_ARC_LOST_LEFT;
+        } else {
+            command->w_radps = -MAIN_ARC_SEARCH_W_RADPS;
+            ctx->state = APP_MAIN_STATE_ARC_LOST_RIGHT;
+        }
+        ctx->target_speed_mps = MAIN_BASIC_LINE_SEARCH_SPEED_MPS;
+        ctx->current_v_mps = apply_speed_slew(ctx->current_v_mps,
+                                              ctx->target_speed_mps);
+    }
+
+    command->v_mps = ctx->current_v_mps;
+}
+
 void main_task(void *arg)
 {
     TickType_t next;
@@ -636,14 +908,64 @@ void main_task(void *arg)
     for (;;) {
         app_challenge_info_t challenge;
         chassis_feedback_t feedback;
+        chassis_command_t requested_command;
         chassis_command_t command = {0};
         const phase_descriptor_t *phase;
         float target_v_mps = 0.0f;
+        app_mode_t mode;
 
         app_state_get_challenge(&challenge);
         app_state_get_feedback(&feedback);
+        app_state_get_command(&requested_command);
+        mode = app_state_get_mode();
 
-        if ((app_state_get_mode() != APP_MODE_MAIN) ||
+        if ((mode == APP_MODE_STRAIGHT_TEST) || (mode == APP_MODE_LINE_TEST)) {
+            if ((ctx.active == 0u) || (ctx.active_mode != mode)) {
+                enter_basic_mode(&ctx,
+                                 mode,
+                                 &requested_command,
+                                 &feedback,
+                                 line_controller,
+                                 yaw_controller);
+            }
+
+            if (mode == APP_MODE_STRAIGHT_TEST) {
+                run_basic_straight(&ctx,
+                                   yaw_controller,
+                                   &feedback,
+                                   &command);
+                if (ctx.phase_distance_m >= ctx.target_distance_m) {
+                    stop_basic_mode(&ctx, line_controller, yaw_controller);
+                    vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
+                    continue;
+                }
+                publish_basic_runtime_state(&ctx,
+                                            APP_PHASE_ACTION_GAP_TRAVERSE,
+                                            APP_CHALLENGE_PHASE_GAP_AB,
+                                            APP_CHALLENGE_STATUS_RUNNING);
+            } else {
+                run_basic_line(&ctx,
+                               line_controller,
+                               &feedback,
+                               &command);
+                if ((ctx.target_distance_m > 0.0f) &&
+                    (ctx.phase_distance_m >= ctx.target_distance_m)) {
+                    stop_basic_mode(&ctx, line_controller, yaw_controller);
+                    vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
+                    continue;
+                }
+                publish_basic_runtime_state(&ctx,
+                                            APP_PHASE_ACTION_ARC_TRACK,
+                                            APP_CHALLENGE_PHASE_ARC_BC,
+                                            APP_CHALLENGE_STATUS_RUNNING);
+            }
+
+            app_state_set_command(&command);
+            vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
+            continue;
+        }
+
+        if ((mode != APP_MODE_MAIN) ||
             (challenge.active == APP_CHALLENGE_NONE) ||
             ((challenge.status != APP_CHALLENGE_STATUS_ALIGN) &&
              (challenge.status != APP_CHALLENGE_STATUS_RUNNING))) {
@@ -659,6 +981,7 @@ void main_task(void *arg)
 
             reset_main_context(&ctx, line_controller, yaw_controller);
             ctx.active = 1u;
+            ctx.active_mode = APP_MODE_MAIN;
             ctx.challenge_active = challenge.active;
             ctx.sequence_index = 0u;
             ctx.lap_total = app_challenge_lap_total(challenge.active);

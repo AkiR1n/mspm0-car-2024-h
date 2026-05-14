@@ -54,6 +54,8 @@ typedef enum {
     APP_MODE_WHEEL_TEST = 2,
     APP_MODE_WHEEL_SPEED_TEST = 3,
     APP_MODE_MAIN = 4,
+    APP_MODE_STRAIGHT_TEST = 5,
+    APP_MODE_LINE_TEST = 6,
 } app_mode_t;
 
 typedef enum {
@@ -127,6 +129,7 @@ typedef struct {
     float                  hold_heading_deg;
     float                  heading_error_deg;
     float                  phase_distance_m;
+    float                  target_distance_m;
     float                  target_speed_mps;
     app_event_id_t         last_event;
     uint32_t               last_event_ms;

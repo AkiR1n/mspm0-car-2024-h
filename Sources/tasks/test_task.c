@@ -198,6 +198,67 @@ static bool parse_float_pair(const char *text, float *left, float *right)
     return true;
 }
 
+static bool parse_float_list(const char *text,
+                             float *values,
+                             unsigned max_count,
+                             unsigned *count_out)
+{
+    unsigned count = 0u;
+    const char *cursor = text;
+
+    if ((values == NULL) || (count_out == NULL) || (max_count == 0u)) {
+        return false;
+    }
+
+    if (cursor == NULL) {
+        *count_out = 0u;
+        return true;
+    }
+
+    while (isspace((unsigned char)*cursor)) {
+        ++cursor;
+    }
+    if (*cursor == '\0') {
+        *count_out = 0u;
+        return true;
+    }
+
+    while (*cursor != '\0') {
+        char *endptr;
+
+        if (count >= max_count) {
+            return false;
+        }
+
+        values[count] = strtof(cursor, &endptr);
+        if (endptr == cursor) {
+            return false;
+        }
+        ++count;
+        cursor = endptr;
+
+        while (isspace((unsigned char)*cursor)) {
+            ++cursor;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+        if (*cursor != ',') {
+            return false;
+        }
+        ++cursor;
+        while (isspace((unsigned char)*cursor)) {
+            ++cursor;
+        }
+        if (*cursor == '\0') {
+            return false;
+        }
+    }
+
+    *count_out = count;
+    return true;
+}
+
 static void clear_challenge_runtime(app_challenge_info_t *challenge,
                                     app_challenge_status_t status,
                                     uint8_t clear_events)
@@ -217,6 +278,7 @@ static void clear_challenge_runtime(app_challenge_info_t *challenge,
     challenge->hold_heading_deg = 0.0f;
     challenge->heading_error_deg = 0.0f;
     challenge->phase_distance_m = 0.0f;
+    challenge->target_distance_m = 0.0f;
     challenge->target_speed_mps = 0.0f;
 
     if (clear_events != 0u) {
@@ -292,6 +354,7 @@ static bool start_selected_challenge(void)
     challenge.hold_heading_deg = 0.0f;
     challenge.heading_error_deg = 0.0f;
     challenge.phase_distance_m = 0.0f;
+    challenge.target_distance_m = 0.0f;
     challenge.target_speed_mps = 0.0f;
     challenge.last_event = APP_EVENT_NONE;
     challenge.last_event_ms = 0u;
@@ -334,6 +397,40 @@ static void apply_twist_command(float v_mps, float w_radps)
     command.v_mps = v_mps;
     command.w_radps = w_radps;
     app_state_set_mode(APP_MODE_TWIST_OPEN);
+    app_state_set_command(&command);
+}
+
+static void apply_straight_test_command(float distance_m, float speed_mps)
+{
+    app_challenge_info_t challenge;
+    chassis_command_t command = {0};
+
+    app_state_get_challenge(&challenge);
+    clear_challenge_runtime(&challenge, APP_CHALLENGE_STATUS_READY, 1u);
+    app_state_set_challenge(&challenge);
+
+    command.stop = 0u;
+    command.enable_closed_loop = 1u;
+    command.v_mps = speed_mps;
+    command.left_speed_mps = distance_m;
+    app_state_set_mode(APP_MODE_STRAIGHT_TEST);
+    app_state_set_command(&command);
+}
+
+static void apply_line_test_command(float speed_mps, float distance_m)
+{
+    app_challenge_info_t challenge;
+    chassis_command_t command = {0};
+
+    app_state_get_challenge(&challenge);
+    clear_challenge_runtime(&challenge, APP_CHALLENGE_STATUS_READY, 1u);
+    app_state_set_challenge(&challenge);
+
+    command.stop = 0u;
+    command.enable_closed_loop = 1u;
+    command.v_mps = speed_mps;
+    command.left_speed_mps = distance_m;
+    app_state_set_mode(APP_MODE_LINE_TEST);
     app_state_set_command(&command);
 }
 
@@ -595,6 +692,38 @@ static void emit_human_status(uint32_t irq_per_s)
         uart_printf(
             "mode=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
+            snapshot.command.v_mps,
+            snapshot.command.w_radps,
+            snapshot.debug.left_target_mps,
+            snapshot.debug.right_target_mps,
+            snapshot.feedback.left_speed_mps,
+            snapshot.feedback.right_speed_mps,
+            snapshot.debug.left_motor_duty,
+            snapshot.debug.right_motor_duty,
+            (long)snapshot.feedback.left_count,
+            (long)snapshot.feedback.right_count,
+            line_text,
+            (unsigned)snapshot.feedback.line_bits,
+            (unsigned)snapshot.feedback.line_detected,
+            (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
+            (unsigned long)irq_per_s,
+            (unsigned long)EncoderHal_GetSampleTickCount());
+        break;
+    case APP_MODE_STRAIGHT_TEST:
+    case APP_MODE_LINE_TEST:
+        uart_printf(
+            "mode=%s state=%s dist=%.3f/%.3f hold=%.1f err=%.1f vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
+            app_mode_name(snapshot.mode),
+            app_main_state_name(snapshot.main_state),
+            snapshot.challenge.phase_distance_m,
+            snapshot.challenge.target_distance_m,
+            snapshot.challenge.hold_heading_deg,
+            snapshot.challenge.heading_error_deg,
             snapshot.command.v_mps,
             snapshot.command.w_radps,
             snapshot.debug.left_target_mps,
@@ -883,7 +1012,7 @@ static void print_help(void)
 {
     uart_printf("test task ready\r\n");
     uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
-    uart_printf("cmd: q1 | q2 | q3 | q4 | run | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | straight[,dist_m[,v_mps]] | line[,v_mps[,dist_m]] | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -1179,6 +1308,44 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
             uart_printf("run blocked sel=%s\r\n",
                         app_challenge_name(challenge.selected));
         }
+        return;
+    }
+    if ((strcmp(line, "straight") == 0) || (strncmp(line, "straight,", 9) == 0)) {
+        float values[2] = {0.50f, 0.25f};
+        float distance_m;
+        float speed_mps;
+        unsigned count = 0u;
+        const char *payload = (line[8] == ',') ? (line + 9) : NULL;
+
+        if (!parse_float_list(payload, values, 2u, &count)) {
+            uart_printf("straight parse error: %s\r\n", line);
+            return;
+        }
+        distance_m = (values[0] > 0.0f) ? values[0] : 0.50f;
+        speed_mps = ((count >= 2u) && (values[1] > 0.0f)) ? values[1] : 0.25f;
+        apply_straight_test_command(distance_m, speed_mps);
+        uart_printf("cmd_straight dist=%.3f v=%.3f\r\n",
+                    distance_m,
+                    speed_mps);
+        return;
+    }
+    if ((strcmp(line, "line") == 0) || (strncmp(line, "line,", 5) == 0)) {
+        float values[2] = {0.18f, 0.0f};
+        float speed_mps;
+        float distance_m;
+        unsigned count = 0u;
+        const char *payload = (line[4] == ',') ? (line + 5) : NULL;
+
+        if (!parse_float_list(payload, values, 2u, &count)) {
+            uart_printf("line parse error: %s\r\n", line);
+            return;
+        }
+        speed_mps = (values[0] > 0.0f) ? values[0] : 0.18f;
+        distance_m = ((count >= 2u) && (values[1] > 0.0f)) ? values[1] : 0.0f;
+        apply_line_test_command(speed_mps, distance_m);
+        uart_printf("cmd_line v=%.3f dist=%.3f\r\n",
+                    speed_mps,
+                    distance_m);
         return;
     }
     if (strncmp(line, "linepol,", 8) == 0) {

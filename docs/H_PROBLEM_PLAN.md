@@ -165,6 +165,24 @@
 - 停车不后退。
 - 串口能记录目标距离、当前距离、yaw、heading error、速度。
 
+当前固件调试入口：
+
+```text
+straight                 # 默认 0.50 m, 0.25 m/s
+straight,0.30            # 直线 0.30 m, 默认 0.25 m/s
+straight,1.00,0.35       # 直线 1.00 m, 0.35 m/s
+stop                     # 手动停止
+```
+
+串口状态行关键字段：
+
+- `mode=STRAIGHT`
+- `state=GAP`
+- `dist=<当前距离>/<目标距离>`
+- `hold=<锁定航向>`
+- `err=<航向误差>`
+- `vw=(v,w)`
+
 暂不要求：
 
 - 自动识别 B 点。
@@ -199,6 +217,24 @@
 - 单侧半圆弧低速可稳定跟随。
 - 丢线后不会高速冲出场地。
 - 串口能记录 `line_bits`、`line_position`、状态、`v/w`、速度。
+
+当前固件调试入口：
+
+```text
+line                     # 默认 0.18 m/s，持续循迹，直到 stop
+line,0.12                # 0.12 m/s 低速循迹
+line,0.18,1.20           # 循迹 1.20 m 后自动停车
+stop                     # 手动停止
+```
+
+串口状态行关键字段：
+
+- `mode=LINE`
+- `state=ARC / ARC_L / ARC_R`
+- `dist=<当前距离>/<目标距离>`，目标距离为 0 表示不按距离自动停车
+- `line=<7路位型>`
+- `bits/det/pos`
+- `vw=(v,w)`
 
 暂不要求：
 
@@ -251,4 +287,3 @@ result:
 issue:
 next_action:
 ```
-
