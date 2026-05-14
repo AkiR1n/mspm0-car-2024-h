@@ -614,6 +614,51 @@ class Dashboard(QtWidgets.QMainWindow):
             buttons.addWidget(button, idx // 2, idx % 2)
         cmd_layout.addLayout(buttons)
 
+        basic_group = QtWidgets.QGroupBox("Basic Tests")
+        basic_layout = QtWidgets.QVBoxLayout(basic_group)
+
+        straight_form = QtWidgets.QFormLayout()
+        self.straight_distance = QtWidgets.QDoubleSpinBox()
+        self.straight_speed = QtWidgets.QDoubleSpinBox()
+        self.straight_distance.setRange(0.05, 2.50)
+        self.straight_distance.setDecimals(2)
+        self.straight_distance.setSingleStep(0.05)
+        self.straight_distance.setValue(0.30)
+        self.straight_speed.setRange(0.05, 0.70)
+        self.straight_speed.setDecimals(2)
+        self.straight_speed.setSingleStep(0.05)
+        self.straight_speed.setValue(0.20)
+        straight_form.addRow("Straight m", self.straight_distance)
+        straight_form.addRow("Straight m/s", self.straight_speed)
+        basic_layout.addLayout(straight_form)
+        straight_btn = QtWidgets.QPushButton("Run Straight")
+        straight_btn.clicked.connect(self.send_straight_command)
+        basic_layout.addWidget(straight_btn)
+
+        line_form = QtWidgets.QFormLayout()
+        self.line_speed = QtWidgets.QDoubleSpinBox()
+        self.line_distance = QtWidgets.QDoubleSpinBox()
+        self.line_speed.setRange(0.05, 0.70)
+        self.line_speed.setDecimals(2)
+        self.line_speed.setSingleStep(0.02)
+        self.line_speed.setValue(0.12)
+        self.line_distance.setRange(0.00, 2.50)
+        self.line_distance.setDecimals(2)
+        self.line_distance.setSingleStep(0.05)
+        self.line_distance.setValue(0.00)
+        line_form.addRow("Line m/s", self.line_speed)
+        line_form.addRow("Line m", self.line_distance)
+        basic_layout.addLayout(line_form)
+        line_row = QtWidgets.QHBoxLayout()
+        line_btn = QtWidgets.QPushButton("Run Line")
+        line_btn.clicked.connect(self.send_line_command)
+        line_stop_btn = QtWidgets.QPushButton("Stop")
+        line_stop_btn.clicked.connect(lambda: self.send_command("stop"))
+        line_row.addWidget(line_btn)
+        line_row.addWidget(line_stop_btn)
+        basic_layout.addLayout(line_row)
+        cmd_layout.addWidget(basic_group)
+
         speed_form = QtWidgets.QFormLayout()
         self.left_speed = QtWidgets.QDoubleSpinBox()
         self.right_speed = QtWidgets.QDoubleSpinBox()
@@ -664,14 +709,17 @@ class Dashboard(QtWidgets.QMainWindow):
 
         cards = QtWidgets.QGridLayout()
         self.mode_card = MetricCard("Mode")
+        self.distance_card = MetricCard("Distance")
+        self.heading_card = MetricCard("Heading")
         self.speed_card = MetricCard("Speed L/R")
         self.duty_card = MetricCard("Duty L/R")
         self.imu_card = MetricCard("IMU")
         self.line_card = MetricCard("Line")
         self.tick_card = MetricCard("Tick / IRQ")
-        for i, card in enumerate([self.mode_card, self.speed_card, self.duty_card,
-                                  self.imu_card, self.line_card, self.tick_card]):
-            cards.addWidget(card, i // 3, i % 3)
+        for i, card in enumerate([self.mode_card, self.distance_card, self.heading_card,
+                                  self.speed_card, self.duty_card, self.imu_card,
+                                  self.line_card, self.tick_card]):
+            cards.addWidget(card, i // 4, i % 4)
         layout.addLayout(cards)
 
         mid = QtWidgets.QHBoxLayout()
@@ -745,6 +793,19 @@ class Dashboard(QtWidgets.QMainWindow):
     def send_twist_command(self) -> None:
         self.send_command(f"twist,{self.twist_v.value():.3f},{self.twist_w.value():.3f}")
 
+    def send_straight_command(self) -> None:
+        self.send_command(
+            f"straight,{self.straight_distance.value():.2f},{self.straight_speed.value():.2f}"
+        )
+
+    def send_line_command(self) -> None:
+        speed = self.line_speed.value()
+        distance = self.line_distance.value()
+        if distance > 0.0:
+            self.send_command(f"line,{speed:.2f},{distance:.2f}")
+        else:
+            self.send_command(f"line,{speed:.2f}")
+
     def send_raw_command(self) -> None:
         text = self.raw_cmd.text().strip()
         if text:
@@ -769,6 +830,12 @@ class Dashboard(QtWidgets.QMainWindow):
     def update_view(self) -> None:
         s = self.state
         self.mode_card.set_values(s.mode, f"state={s.main_state}  stop={s.stop}  port={s.port}")
+        target_text = "--" if s.target_distance_m <= 0.0 else f"{s.target_distance_m:.2f} m"
+        self.distance_card.set_values(f"{s.distance_m:.2f} m", f"target {target_text}")
+        self.heading_card.set_values(
+            f"{s.heading_error:.1f} deg",
+            f"hold {s.hold_heading:.1f} deg",
+        )
         self.speed_card.set_values(
             f"{s.measured_left_speed:.3f} / {s.measured_right_speed:.3f}",
             f"target {s.target_left_speed:.3f} / {s.target_right_speed:.3f} m/s",
