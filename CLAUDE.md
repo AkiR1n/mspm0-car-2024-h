@@ -133,7 +133,24 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 | UART0 | PA10/PA11 | J-Link VCOM（ACM1，如果连接） |
 | UART1 | PA8/PA9（CMSIS-DAP VCOM） | `/dev/ttyACM0` |
 
-`test_task` 同时从 UART0 和 UART1 读取命令，`uart_printf` 输出镜像到两个通道（UART0 阻塞发送，UART1 中断环形缓冲发送）。
+`test_task` 同时从 UART0 和 UART1 读取命令，`uart_printf` 输出镜像到两个通道（UART0 阻塞发送，UART1 阻塞发送）。
+
+## 综合上位机 Dashboard
+
+```sh
+python3 tools/vehicle_dashboard.py /dev/ttyACM1 115200
+# 如需连接后自动进入 IMU 独占详细流：追加 --auto-imu
+
+# VS Code: Run Task → vehicle-dashboard（弹出串口/波特率选择器）
+```
+
+Dashboard 解析 `mode=...` 状态行和 `imu:` 详细行。常规状态行已包含 IMU 摘要，默认连接时只监听串口，不主动切换 IMU 独占模式。当前界面包含：
+
+- 串口连接、原始命令发送、`stop` / `showpid` / `uartstat` / `imu,50` / `lineraw`
+- 左右轮目标速度、实测速度、duty、计数、速度历史曲线
+- IMU ready/stable、yaw、gyro Z、指南针、yaw/gz 历史曲线
+- 7 路循迹位图、`bits/det/pos`
+- 原始串口日志和最新状态明细
 
 ## IMU 调试工具链
 
@@ -222,9 +239,9 @@ python3 tools/imu_monitor.py /dev/ttyACM0 115200
 | `imuz,<sign>` | `imuz,-1` | 设置陀螺 Z 轴方向（+1 或 -1） |
 | `imus,<sens>` | `imus,8.2` | 覆写陀螺灵敏度（0=自动检测） |
 
-串口输出格式：`duty=(右,左) meas=(右,左) count=(右,左)`。
+串口输出格式：`duty=(左,右) meas=(左,右) count=(左,右)`。
 
-STOP 模式输出包含 IMU 摘要：`imu=(ready,stable) yaw=... gz=... up=...`。
+常规 `mode=...` 状态输出包含 IMU 摘要：`imu=(ready,stable) yaw=... gz=... up=...`。
 IMU 独占模式（`imu` 命令）输出详细 IMU 数据：`yaw`, `yaw_dmp`, `gz_raw`, `gz_bias`, `sens` 等。
 
 ## 关键参数位置

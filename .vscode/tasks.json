@@ -246,6 +246,20 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "vehicle-dashboard",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/tools/vehicle_dashboard.py",
+        "${input:serialPort}",
+        "${input:serialBaud}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
     }
   ],
   "inputs": [

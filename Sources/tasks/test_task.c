@@ -545,7 +545,7 @@ static void emit_human_status(uint32_t irq_per_s)
     switch (snapshot.mode) {
     case APP_MODE_WHEEL_SPEED_TEST:
         uart_printf(
-            "mode=%s spd=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s spd=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.left_speed_mps,
             snapshot.command.right_speed_mps,
@@ -561,12 +561,17 @@ static void emit_human_status(uint32_t irq_per_s)
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
             (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_WHEEL_TEST:
         uart_printf(
-            "mode=%s duty=(%.3f,%.3f) meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s duty=(%.3f,%.3f) meas=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.left_duty,
             snapshot.command.right_duty,
@@ -578,12 +583,17 @@ static void emit_human_status(uint32_t irq_per_s)
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
             (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_TWIST_OPEN:
         uart_printf(
-            "mode=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) count=(%ld,%ld) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             snapshot.command.v_mps,
             snapshot.command.w_radps,
@@ -599,12 +609,17 @@ static void emit_human_status(uint32_t irq_per_s)
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
             (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
     case APP_MODE_MAIN:
         uart_printf(
-            "mode=%s q=%s/%s ph=%s act=%s lap=%u/%u cp=%u evt=%s@%lu state=%s hdg=(%.1f,%.1f,%.1f) dist=%.3f vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) line=%s bits=0x%02X det=%u pos=%d irq/s=%lu tick=%lu\r\n",
+            "mode=%s q=%s/%s ph=%s act=%s lap=%u/%u cp=%u evt=%s@%lu state=%s hdg=(%.1f,%.1f,%.1f) dist=%.3f vw=(%.3f,%.3f) target=(%.3f,%.3f) meas=(%.3f,%.3f) duty=(%.3f,%.3f) line=%s bits=0x%02X det=%u pos=%d imu=(%u,%u) yaw=%.1f gz=%.2f up=%lu irq/s=%lu tick=%lu\r\n",
             app_mode_name(snapshot.mode),
             app_challenge_name(snapshot.challenge.selected),
             app_challenge_status_name(snapshot.challenge.status),
@@ -632,6 +647,11 @@ static void emit_human_status(uint32_t irq_per_s)
             (unsigned)snapshot.feedback.line_bits,
             (unsigned)snapshot.feedback.line_detected,
             (int)snapshot.feedback.line_position,
+            (unsigned)snapshot.feedback.imu_ready,
+            (unsigned)snapshot.feedback.imu_stable,
+            snapshot.feedback.yaw_deg,
+            snapshot.feedback.gyro_z,
+            (unsigned long)snapshot.feedback.imu_uptime_ms,
             (unsigned long)irq_per_s,
             (unsigned long)EncoderHal_GetSampleTickCount());
         break;
