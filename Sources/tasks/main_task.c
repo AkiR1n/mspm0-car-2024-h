@@ -32,6 +32,8 @@
 #define MAIN_BASIC_MIN_SPEED_MPS               0.05f
 #define MAIN_BASIC_MAX_SPEED_MPS               0.70f
 #define MAIN_BASIC_LINE_W_LIMIT_RADPS          2.20f
+// Positive line controller output currently steers opposite to the installed sensor/chassis orientation.
+#define MAIN_LINE_STEER_SIGN                   (-1.0f)
 #define MAIN_ARC_W_LIMIT_RADPS            2.40f
 #define MAIN_ARC_SEARCH_SPEED_MPS         0.12f
 #define MAIN_ARC_SEARCH_W_RADPS           1.10f
@@ -433,6 +435,11 @@ static float get_arc_inner_bias_w(const arc_profile_t *profile, float phase_dist
     return (float)profile->inner_bias_sign * profile->inner_bias_w_radps * t;
 }
 
+static float apply_line_steer_sign(float w_radps)
+{
+    return MAIN_LINE_STEER_SIGN * w_radps;
+}
+
 static float get_phase_target_distance_m(const phase_descriptor_t *phase)
 {
     if (phase == NULL) {
@@ -675,6 +682,7 @@ static float run_arc_track(main_task_ctx_t *ctx,
                                           MAIN_DT_S);
         control_w *= select_edge_boost(line_error) * turn_scale;
         control_w += get_arc_inner_bias_w(phase->arc_profile, ctx->phase_distance_m);
+        control_w = apply_line_steer_sign(control_w);
         command->w_radps = clampf(control_w,
                                   -MAIN_ARC_W_LIMIT_RADPS,
                                   MAIN_ARC_W_LIMIT_RADPS);
@@ -683,10 +691,10 @@ static float run_arc_track(main_task_ctx_t *ctx,
 
     LineController_Reset(line_controller);
     if ((ctx->arc_has_seen_line == 0u) || (ctx->arc_last_error <= 0.0f)) {
-        command->w_radps = MAIN_ARC_SEARCH_W_RADPS;
+        command->w_radps = apply_line_steer_sign(MAIN_ARC_SEARCH_W_RADPS);
         ctx->state = APP_MAIN_STATE_ARC_LOST_LEFT;
     } else {
-        command->w_radps = -MAIN_ARC_SEARCH_W_RADPS;
+        command->w_radps = apply_line_steer_sign(-MAIN_ARC_SEARCH_W_RADPS);
         ctx->state = APP_MAIN_STATE_ARC_LOST_RIGHT;
     }
 
@@ -866,6 +874,7 @@ static void run_basic_line(main_task_ctx_t *ctx,
                                           feedback->line_bits,
                                           feedback->line_detected,
                                           MAIN_DT_S);
+        control_w = apply_line_steer_sign(control_w);
         command->w_radps = clampf(control_w,
                                   -MAIN_BASIC_LINE_W_LIMIT_RADPS,
                                   MAIN_BASIC_LINE_W_LIMIT_RADPS);
@@ -876,10 +885,10 @@ static void run_basic_line(main_task_ctx_t *ctx,
         LineController_Reset(line_controller);
         ctx->line_missing_ms = (uint16_t)(ctx->line_missing_ms + MAIN_TASK_PERIOD_MS);
         if ((ctx->arc_has_seen_line == 0u) || (ctx->arc_last_error <= 0.0f)) {
-            command->w_radps = MAIN_ARC_SEARCH_W_RADPS;
+            command->w_radps = apply_line_steer_sign(MAIN_ARC_SEARCH_W_RADPS);
             ctx->state = APP_MAIN_STATE_ARC_LOST_LEFT;
         } else {
-            command->w_radps = -MAIN_ARC_SEARCH_W_RADPS;
+            command->w_radps = apply_line_steer_sign(-MAIN_ARC_SEARCH_W_RADPS);
             ctx->state = APP_MAIN_STATE_ARC_LOST_RIGHT;
         }
         ctx->target_speed_mps = MAIN_BASIC_LINE_SEARCH_SPEED_MPS;
