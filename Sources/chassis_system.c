@@ -33,8 +33,8 @@ void chassis_system_init(void)
 {
     const wheel_cfg_t left_wheel_cfg = {
         .speed_pid = {
-            .kp = 0.206276f,
-            .ki = 1.748212f,
+            .kp = 0.265742f,
+            .ki = 3.321770f,
             .kd = 0.0f,
             .out_min = -1.0f,
             .out_max = 1.0f,
@@ -44,12 +44,12 @@ void chassis_system_init(void)
             .anti_windup_enable = 1u,
             .mode = PID_MODE_POSITIONAL,
         },
-        .speed_ff_gain = 0.825105f,
+        .speed_ff_gain = 1.162620f,
     };
     const wheel_cfg_t right_wheel_cfg = {
         .speed_pid = {
-            .kp = 0.208663f,
-            .ki = 1.768348f,
+            .kp = 0.265832f,
+            .ki = 3.322895f,
             .kd = 0.0f,
             .out_min = -1.0f,
             .out_max = 1.0f,
@@ -59,7 +59,7 @@ void chassis_system_init(void)
             .anti_windup_enable = 1u,
             .mode = PID_MODE_POSITIONAL,
         },
-        .speed_ff_gain = 0.834652f,
+        .speed_ff_gain = 1.163013f,
     };
     const pid_config_t yaw_pid_cfg = {
         .kp = 0.02f,
