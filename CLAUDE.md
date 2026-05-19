@@ -99,10 +99,10 @@ main_task   → app_state.challenge → test_task/oled_task (读取显示)
 
 | 物理侧 | 软件标识 | PWM | IN1 | IN2 | 编码器 A1 | 编码器 A2 |
 |--------|----------|-----|-----|-----|-----------|-----------|
-| 右轮 | s_left_* | PB14 | PB9 | PB10 | PB11 | PB4 |
-| 左轮 | s_right_* | PA7 | PB7 | PB6 | PB12 | PB5 |
+| 左轮 | s_left_* | PB14 | PB9 | PB10 | PB11 | PB4 |
+| 右轮 | s_right_* | PA7 | PB7 | PB6 | PB12 | PB5 |
 
-注意：软件侧 `s_left_*` 映射到物理**右**轮，`s_right_*` 映射到物理**左**轮（`Sources/chassis_system.c` 中 HAL ID 交换）。
+注意：软件侧 `s_left_*` 映射到物理**左**轮，`s_right_*` 映射到物理**右**轮（`Sources/chassis_system.c` 中 HAL ID 直接对应）。
 
 电机 HAL 已对称化：前进=IN1高/IN2低，后退=IN1低/IN2高，停车=IN1低/IN2低。
 
