@@ -260,6 +260,31 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "web-dashboard",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/tools/web_dashboard.py",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "${input:webDashboardPort}",
+        "--serial-port",
+        "${input:serialPort}",
+        "--baud",
+        "${input:serialBaud}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -281,6 +306,17 @@
         "115200"
       ],
       "default": "115200"
+    },
+    {
+      "id": "webDashboardPort",
+      "type": "pickString",
+      "description": "选择 WebDashboard 端口",
+      "options": [
+        "8765",
+        "8766",
+        "8767"
+      ],
+      "default": "8765"
     }
   ]
 }
