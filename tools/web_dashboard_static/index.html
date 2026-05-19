@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MSPM0 Vehicle Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">M0</div>
+          <div>
+            <h1>Vehicle XD</h1>
+            <p>MSPM0 H Problem Console</p>
+          </div>
+        </div>
+
+        <section class="panel compact">
+          <label>Serial Port</label>
+          <div class="row">
+            <select id="portSelect"></select>
+            <button id="refreshPorts" class="icon-btn" title="Refresh ports">R</button>
+          </div>
+          <label>Baud</label>
+          <select id="baudSelect">
+            <option>115200</option>
+            <option>9600</option>
+          </select>
+          <label class="check-row">
+            <input id="autoImu" type="checkbox" />
+            <span>request imu,50 on connect</span>
+          </label>
+          <div class="row">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" class="secondary">Disconnect</button>
+          </div>
+          <div id="linkStatus" class="status-pill">disconnected</div>
+        </section>
+
+        <nav class="nav">
+          <button data-view="overview" class="active">Overview</button>
+          <button data-view="track">Track</button>
+          <button data-view="manual">Manual</button>
+          <button data-view="tools">Tools</button>
+          <button data-view="logs">Logs</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Live Controller</p>
+            <h2 id="routeTitle">--</h2>
+          </div>
+          <div class="top-actions">
+            <button data-command="stop" class="danger">Stop</button>
+            <button data-command="imu,50" class="secondary">IMU 50ms</button>
+            <button data-command="imustat" class="secondary">IMU Stat</button>
+          </div>
+        </header>
+
+        <section id="overview" class="view active">
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span>Mode</span>
+              <strong id="modeValue">--</strong>
+              <small id="modeSub">state=-- stop=0</small>
+            </article>
+            <article class="metric-card">
+              <span>Distance</span>
+              <strong id="distanceValue">0.00 m</strong>
+              <small id="distanceSub">target --</small>
+            </article>
+            <article class="metric-card">
+              <span>Heading</span>
+              <strong id="headingValue">0.0 deg</strong>
+              <small id="headingSub">hold 0.0 deg</small>
+            </article>
+            <article class="metric-card">
+              <span>IMU</span>
+              <strong id="imuValue">yaw 0.0 deg</strong>
+              <small id="imuSub">not ready</small>
+            </article>
+            <article class="metric-card">
+              <span>Speed L/R</span>
+              <strong id="speedValue">0.000 / 0.000</strong>
+              <small id="speedSub">target 0.000 / 0.000 m/s</small>
+            </article>
+            <article class="metric-card">
+              <span>Duty L/R</span>
+              <strong id="dutyValue">0.000 / 0.000</strong>
+              <small id="dutySub">count 0 / 0</small>
+            </article>
+            <article class="metric-card">
+              <span>Line</span>
+              <strong id="lineValue">-------</strong>
+              <small id="lineSub">bits=0x00 det=0 pos=0</small>
+            </article>
+            <article class="metric-card">
+              <span>Tick / IRQ</span>
+              <strong id="tickValue">0</strong>
+              <small id="tickSub">irq/s=0 up=0ms</small>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel heading-panel">
+              <div class="section-title">
+                <h3>Heading / Line</h3>
+                <span id="stableBadge" class="badge">warming</span>
+              </div>
+              <canvas id="compassCanvas" width="260" height="260"></canvas>
+              <div id="lineSensors" class="line-sensors"></div>
+            </section>
+            <section class="panel chart-panel">
+              <div class="section-title">
+                <h3>Wheel Speed</h3>
+                <span>m/s</span>
+              </div>
+              <canvas id="speedChart" height="210"></canvas>
+            </section>
+            <section class="panel chart-panel">
+              <div class="section-title">
+                <h3>Yaw / Gyro Z</h3>
+                <span>deg / deg/s</span>
+              </div>
+              <canvas id="imuChart" height="210"></canvas>
+            </section>
+          </div>
+
+          <section class="panel detail-panel">
+            <pre id="detailText">waiting for serial data...</pre>
+          </section>
+        </section>
+
+        <section id="track" class="view">
+          <div class="control-grid">
+            <section class="panel">
+              <div class="section-title"><h3>Straight</h3><span>A to B</span></div>
+              <div class="form-grid">
+                <label>Distance m<input id="straightDistance" type="number" step="0.05" min="0.05" value="1.00" /></label>
+                <label>Speed m/s<input id="straightSpeed" type="number" step="0.05" min="0.05" value="0.35" /></label>
+              </div>
+              <div class="button-row">
+                <button id="runStraight">Run Straight</button>
+                <button id="runAB" class="secondary">AB 1m</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>Line</h3><span>arc / wired tracking</span></div>
+              <div class="form-grid">
+                <label>Speed m/s<input id="lineSpeed" type="number" step="0.02" min="0.05" value="0.18" /></label>
+                <label>Distance m<input id="lineDistance" type="number" step="0.05" min="0" value="0.00" /></label>
+              </div>
+              <div class="button-row">
+                <button id="runLine">Run Line</button>
+                <button id="runLine120" class="secondary">Line 1.2m</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>Q2</h3><span>A-B-C-D-A</span></div>
+              <div class="button-grid">
+                <button data-command="q2">Select Q2</button>
+                <button id="runQ2">Run Q2</button>
+                <button data-command="q1" class="secondary">Select Q1</button>
+                <button data-command="q3" class="secondary">Select Q3</button>
+                <button data-command="q4" class="secondary">Select Q4</button>
+                <button data-command="stop" class="danger">Stop</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="manual" class="view">
+          <div class="control-grid">
+            <section class="panel">
+              <div class="section-title"><h3>Wheel Ratio</h3><span>speed command</span></div>
+              <div class="form-grid">
+                <label>Base m/s<input id="wheelBase" type="number" step="0.05" value="0.20" /></label>
+                <label>Left %<input id="leftRatio" type="number" step="5" value="100" /></label>
+                <label>Right %<input id="rightRatio" type="number" step="5" value="100" /></label>
+              </div>
+              <button id="setWheelRatio">Set Wheel Ratio</button>
+            </section>
+            <section class="panel">
+              <div class="section-title"><h3>Twist</h3><span>v / w</span></div>
+              <div class="form-grid">
+                <label>v m/s<input id="twistV" type="number" step="0.05" value="0.00" /></label>
+                <label>w rad/s<input id="twistW" type="number" step="0.20" value="0.00" /></label>
+              </div>
+              <button id="setTwist">Set Twist</button>
+            </section>
+          </div>
+        </section>
+
+        <section id="tools" class="view">
+          <section class="panel">
+            <div class="section-title"><h3>Commands</h3><span>firmware console</span></div>
+            <div class="button-grid">
+              <button data-command="showpid">Show PID</button>
+              <button data-command="uartstat">UART Stat</button>
+              <button data-command="uartstat,clear">Clear UART Stat</button>
+              <button data-command="imustat">IMU Stat</button>
+              <button data-command="lineraw">Line Raw</button>
+              <button data-command="linecfg">Line Config</button>
+              <button data-command="imu,50">IMU 50ms</button>
+              <button data-command="imu">IMU Toggle</button>
+              <button data-command="main">Main</button>
+              <button data-command="stop" class="danger">Stop</button>
+            </div>
+            <div class="raw-row">
+              <input id="rawCommand" placeholder="raw command" />
+              <button id="sendRaw">Send</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="logs" class="view">
+          <section class="panel log-panel">
+            <div class="section-title">
+              <h3>Serial Log</h3>
+              <button id="clearLog" class="secondary">Clear</button>
+            </div>
+            <pre id="logBox"></pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
