@@ -98,6 +98,7 @@ typedef struct {
     float            phase_distance_m;
     float            target_distance_m;
     float            cruise_speed_mps;
+    float            field_yaw_offset_deg;
     float            geometry_heading_deg;
     float            hold_heading_deg;
     float            heading_error_deg;
@@ -538,7 +539,12 @@ static void enter_phase(main_task_ctx_t *ctx,
     ctx->phase_distance_m = 0.0f;
     ctx->target_distance_m = get_phase_target_distance_m(phase);
     ctx->geometry_heading_deg = phase->geometry_heading_deg;
-    ctx->hold_heading_deg = feedback->yaw_deg;
+    if (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) {
+        ctx->hold_heading_deg =
+            wrap_angle_deg(ctx->field_yaw_offset_deg + phase->geometry_heading_deg);
+    } else {
+        ctx->hold_heading_deg = feedback->yaw_deg;
+    }
     ctx->heading_error_deg = 0.0f;
     ctx->target_speed_mps = ctx->current_v_mps;
 
@@ -1003,6 +1009,8 @@ void main_task(void *arg)
                 vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
                 continue;
             }
+            ctx.field_yaw_offset_deg =
+                wrap_angle_deg(feedback.yaw_deg - first_phase->geometry_heading_deg);
             enter_phase(&ctx, first_phase, &feedback, line_controller, yaw_controller);
         }
 
