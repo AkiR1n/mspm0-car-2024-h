@@ -19,6 +19,7 @@
 #include "pid.h"
 #include "uart_printf.h"
 #include "uart_rx.h"
+#include "wit_imu_uart.h"
 
 #define MODE_TASK_PERIOD_MS          50U
 #define MODE_CMD_BUFFER_SIZE         96U
@@ -603,12 +604,16 @@ static void emit_auto_sample(test_task_ctx_t *ctx, uint32_t now_ms, uint32_t irq
 static void emit_imu_only(const app_state_snapshot_t *snapshot)
 {
     imu_t *imu = chassis_system_get_imu();
+    wit_imu_uart_stats_t stats;
+
+    WitImuUart_GetStats(&stats);
     uart_printf(
         "imu: yaw=%.1f yaw_dmp=%.1f yaw_rel=%.1f "
         "gz=%.2f gz_raw=%.1f gz_bias=%.2f "
         "pitch=%.1f roll=%.1f "
         "rdy=%u stb=%u bias=%u up=%lu "
-        "sign=%.0f sens=%.1f\r\n",
+        "sign=%.0f sens=%.1f "
+        "rx=%lu ok=(a%lu,g%lu) err=(sum%lu,sync%lu,of%lu,hw%lu)\r\n",
         snapshot->feedback.yaw_deg,
         (imu != NULL) ? imu->yaw_deg_raw : 0.0f,
         (imu != NULL) ? imu->yaw_rel_deg : 0.0f,
@@ -622,7 +627,14 @@ static void emit_imu_only(const app_state_snapshot_t *snapshot)
         (imu != NULL) ? imu->bias_committed : 0u,
         (unsigned long)snapshot->feedback.imu_uptime_ms,
         (imu != NULL) ? imu->cfg.gyro_z_sign : 0.0f,
-        (imu != NULL) ? imu->gyro_sens_lsb_per_dps : 0.0f);
+        (imu != NULL) ? imu->gyro_sens_lsb_per_dps : 0.0f,
+        (unsigned long)stats.rx_bytes,
+        (unsigned long)stats.frame_angle,
+        (unsigned long)stats.frame_gyro,
+        (unsigned long)stats.checksum_error,
+        (unsigned long)stats.sync_drop,
+        (unsigned long)stats.rx_overflow,
+        (unsigned long)stats.hw_overrun);
 }
 
 static void emit_human_status(uint32_t irq_per_s)
@@ -998,10 +1010,28 @@ static void print_uart_stats(void)
                 (unsigned long)s_uart1_line_too_long);
 }
 
+static void print_imu_uart_stats(void)
+{
+    wit_imu_uart_stats_t stats;
+
+    WitImuUart_GetStats(&stats);
+    uart_printf("imu_uart rx=%lu angle=%lu gyro=%lu other=%lu sample=%lu sumerr=%lu sync=%lu overflow=%lu hw_overrun=%lu\r\n",
+                (unsigned long)stats.rx_bytes,
+                (unsigned long)stats.frame_angle,
+                (unsigned long)stats.frame_gyro,
+                (unsigned long)stats.frame_other,
+                (unsigned long)stats.sample_seq,
+                (unsigned long)stats.checksum_error,
+                (unsigned long)stats.sync_drop,
+                (unsigned long)stats.rx_overflow,
+                (unsigned long)stats.hw_overrun);
+}
+
 static void clear_uart_stats(void)
 {
     uart_rx_clear_stats();
     bt_uart_clear_stats();
+    WitImuUart_ClearStats();
     s_uart0_non_ascii_drop = 0u;
     s_uart0_line_too_long = 0u;
     s_uart1_non_ascii_drop = 0u;
@@ -1012,7 +1042,7 @@ static void print_help(void)
 {
     uart_printf("test task ready\r\n");
     uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
-    uart_printf("cmd: q1 | q2 | q3 | q4 | run | straight[,dist_m[,v_mps]] | line[,v_mps[,dist_m]] | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
+    uart_printf("cmd: q1 | q2 | q3 | q4 | run | straight[,dist_m[,v_mps]] | line[,v_mps[,dist_m]] | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | imustat | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);
     print_pid_line("right", 1);
@@ -1195,6 +1225,10 @@ static void handle_command_line(test_task_ctx_t *ctx, char *line)
     if (strcmp(line, "uartstat,clear") == 0) {
         clear_uart_stats();
         uart_printf("uartstat cleared\r\n");
+        return;
+    }
+    if (strcmp(line, "imustat") == 0) {
+        print_imu_uart_stats();
         return;
     }
     if (strcmp(line, "linecfg") == 0) {

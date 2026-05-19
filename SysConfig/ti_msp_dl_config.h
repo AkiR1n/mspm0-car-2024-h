@@ -175,6 +175,22 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define UART_DBG_BAUD_RATE                                              (115200)
 #define UART_DBG_IBRD_40_MHZ_115200_BAUD                                    (21)
 #define UART_DBG_FBRD_40_MHZ_115200_BAUD                                    (45)
+/* Defines for UART_IMU */
+#define UART_IMU_INST                                                      UART2
+#define UART_IMU_INST_FREQUENCY                                         40000000
+#define UART_IMU_INST_IRQHandler                                UART2_IRQHandler
+#define UART_IMU_INST_INT_IRQN                                    UART2_INT_IRQn
+#define GPIO_UART_IMU_RX_PORT                                              GPIOB
+#define GPIO_UART_IMU_TX_PORT                                              GPIOB
+#define GPIO_UART_IMU_RX_PIN                                      DL_GPIO_PIN_16
+#define GPIO_UART_IMU_TX_PIN                                      DL_GPIO_PIN_15
+#define GPIO_UART_IMU_IOMUX_RX                                   (IOMUX_PINCM33)
+#define GPIO_UART_IMU_IOMUX_TX                                   (IOMUX_PINCM32)
+#define GPIO_UART_IMU_IOMUX_RX_FUNC                    IOMUX_PINCM33_PF_UART2_RX
+#define GPIO_UART_IMU_IOMUX_TX_FUNC                    IOMUX_PINCM32_PF_UART2_TX
+#define UART_IMU_BAUD_RATE                                              (115200)
+#define UART_IMU_IBRD_40_MHZ_115200_BAUD                                    (21)
+#define UART_IMU_FBRD_40_MHZ_115200_BAUD                                    (45)
 
 
 
@@ -289,6 +305,7 @@ void SYSCFG_DL_I2C_MPU6050_init(void);
 void SYSCFG_DL_I2C_OLED_init(void);
 void SYSCFG_DL_UART0_init(void);
 void SYSCFG_DL_UART_DBG_init(void);
+void SYSCFG_DL_UART_IMU_init(void);
 
 
 bool SYSCFG_DL_saveConfiguration(void);

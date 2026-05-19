@@ -4,3 +4,5 @@ build/
 .venv/
 cc-export.txt
 .worktrees/
+archive/vendor/
+*.zip

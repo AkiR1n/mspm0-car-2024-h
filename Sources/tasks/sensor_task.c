@@ -14,14 +14,14 @@
 
 static const imu_cfg_t k_main_imu_cfg = {
     .auto_calibration = 0u,
-    .warmup_ms = 1200u,
+    .warmup_ms = 300u,
     .stable_gyro_threshold = 2.0f,
     .stable_hold_ms = 300u,
-    .estimate_gyro_bias = 1u,
+    .estimate_gyro_bias = 0u,
     .apply_dmp_bias = 0u,
     .zero_yaw_on_stable = 1u,
-    .gyro_z_sign = 1.0f,
-    .gyro_sens_override = 8.2f,
+    .gyro_z_sign = -1.0f,
+    .gyro_sens_override = 0.0f,
 };
 
 void sensor_task(void *arg)
