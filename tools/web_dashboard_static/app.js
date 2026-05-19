@@ -61,6 +61,7 @@ const hist = {
 };
 
 const maxPoints = 500;
+const maxCanvasPixels = 1800;
 const $ = (id) => document.getElementById(id);
 
 function num(value, fallback = 0) {
@@ -240,10 +241,14 @@ function drawCompass() {
 
 function drawChart(canvas, series) {
   const ctx = canvas.getContext("2d");
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const width = Math.max(320, Math.floor(rect.width * dpr));
-  const height = Math.max(160, Math.floor((canvas.getAttribute("height") || 210) * dpr));
+  const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  const host = canvas.parentElement || canvas;
+  const cssWidth = Math.max(320, Math.floor(host.clientWidth || 320));
+  const cssHeight = Math.max(160, Math.floor(host.clientHeight || Number(canvas.getAttribute("height") || 210)));
+  const width = Math.min(maxCanvasPixels, Math.floor(cssWidth * dpr));
+  const height = Math.min(maxCanvasPixels, Math.floor(cssHeight * dpr));
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
