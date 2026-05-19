@@ -28,6 +28,7 @@ import serial
 ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = ROOT / "web_dashboard_static"
 READ_TIMEOUT_S = 0.2
+MAX_LINE_BYTES = 4096
 
 PAIR_RE = re.compile(r"(?P<name>\w+)=\((?P<a>-?\d+(?:\.\d+)?),(?P<b>-?\d+(?:\.\d+)?)\)")
 FIELD_RE = re.compile(r"(?P<name>[A-Za-z_][\w/]*)=(?P<value>0x[0-9A-Fa-f]+|-?\d+(?:\.\d+)?|[A-Za-z0-9_./@-]+)")
@@ -306,6 +307,21 @@ class DashboardHub:
         ser.flush()
         self._broadcast({"kind": "tx", "line": f"> {command}", "state": self.snapshot()})
 
+    def _read_serial_line(self, ser: serial.Serial) -> bytes:
+        line = bytearray()
+        while not self._stop_reader.is_set():
+            chunk = ser.read(1)
+            if not chunk:
+                return bytes(line)
+            if chunk in (b"\n", b"\r"):
+                if line:
+                    return bytes(line)
+                continue
+            line.extend(chunk)
+            if len(line) >= MAX_LINE_BYTES:
+                return bytes(line)
+        return b""
+
     def _read_loop(self) -> None:
         while not self._stop_reader.is_set():
             with self._lock:
@@ -313,9 +329,10 @@ class DashboardHub:
             if ser is None:
                 break
             try:
-                raw = ser.readline()
-            except serial.SerialException as exc:
-                self._set_status(f"serial error: {exc}")
+                raw = self._read_serial_line(ser)
+            except (OSError, TypeError, serial.SerialException) as exc:
+                if not self._stop_reader.is_set():
+                    self._set_status(f"serial error: {exc}")
                 break
             if not raw:
                 continue

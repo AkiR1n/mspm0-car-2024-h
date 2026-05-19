@@ -63,19 +63,24 @@ const hist = {
 const maxPoints = 500;
 const $ = (id) => document.getElementById(id);
 
+function num(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function fmt(value, digits = 2) {
-  return Number(value || 0).toFixed(digits);
+  return num(value).toFixed(digits);
 }
 
 function pushHistory() {
   const now = Date.now() / 1000;
   hist.t.push(now);
-  hist.left.push(state.measured_left_speed || 0);
-  hist.right.push(state.measured_right_speed || 0);
-  hist.leftTarget.push(state.target_left_speed || 0);
-  hist.rightTarget.push(state.target_right_speed || 0);
-  hist.yaw.push(state.yaw || 0);
-  hist.gz.push(state.gz || 0);
+  hist.left.push(num(state.measured_left_speed));
+  hist.right.push(num(state.measured_right_speed));
+  hist.leftTarget.push(num(state.target_left_speed));
+  hist.rightTarget.push(num(state.target_right_speed));
+  hist.yaw.push(num(state.yaw));
+  hist.gz.push(num(state.gz));
   for (const key of Object.keys(hist)) {
     if (hist[key].length > maxPoints) hist[key].shift();
   }
@@ -245,7 +250,7 @@ function drawChart(canvas, series) {
   }
   ctx.clearRect(0, 0, width, height);
   const pad = 32 * dpr;
-  const values = series.flatMap((s) => s.data);
+  const values = series.flatMap((s) => s.data).filter(Number.isFinite);
   const min = values.length ? Math.min(...values, -0.05) : -1;
   const max = values.length ? Math.max(...values, 0.05) : 1;
   const span = Math.max(0.1, max - min);
@@ -265,6 +270,7 @@ function drawChart(canvas, series) {
     ctx.lineWidth = 2 * dpr;
     ctx.beginPath();
     data.forEach((v, i) => {
+      v = num(v);
       const x = pad + (i / (maxPoints - 1)) * (width - pad * 1.5);
       const y = pad + (1 - ((v - min) / span)) * (height - pad * 1.6);
       if (i === 0) ctx.moveTo(x, y);
@@ -334,12 +340,12 @@ function wireUi() {
     sendCommand("run");
   });
   $("setWheelRatio").addEventListener("click", () => {
-    const base = Number($("wheelBase").value);
-    const left = base * Number($("leftRatio").value) / 100;
-    const right = base * Number($("rightRatio").value) / 100;
+    const base = num($("wheelBase").value, 0);
+    const left = base * num($("leftRatio").value, 100) / 100;
+    const right = base * num($("rightRatio").value, 100) / 100;
     sendCommand(`spd,${left.toFixed(3)},${right.toFixed(3)}`);
   });
-  $("setTwist").addEventListener("click", () => sendCommand(`twist,${Number($("twistV").value).toFixed(3)},${Number($("twistW").value).toFixed(3)}`));
+  $("setTwist").addEventListener("click", () => sendCommand(`twist,${num($("twistV").value).toFixed(3)},${num($("twistW").value).toFixed(3)}`));
   $("sendRaw").addEventListener("click", () => {
     const input = $("rawCommand");
     sendCommand(input.value.trim());
