@@ -42,6 +42,10 @@
 #define MAIN_ARC_MAX_ERROR_THRESHOLD      30
 #define MAIN_ARC_EDGE_BOOST_THRESHOLD     18
 #define MAIN_ARC_EDGE_BOOST_MAX_SCALE     1.35f
+#define MAIN_ARC_EXIT_HEADING_TOL_DEG     8.0f
+#define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
+#define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
+#define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.18f
 #define MAIN_REACQUIRE_CONFIRM_MS         40U
 #define MAIN_V_ACCEL_MPS2                 2.8f
 #define MAIN_V_DECEL_MPS2                 2.2f
@@ -441,6 +445,15 @@ static float apply_line_steer_sign(float w_radps)
     return MAIN_LINE_STEER_SIGN * w_radps;
 }
 
+static float get_field_heading_deg(const main_task_ctx_t *ctx,
+                                   const phase_descriptor_t *phase)
+{
+    if ((ctx == NULL) || (phase == NULL)) {
+        return 0.0f;
+    }
+    return wrap_angle_deg(ctx->field_yaw_offset_deg + phase->geometry_heading_deg);
+}
+
 static float get_phase_target_distance_m(const phase_descriptor_t *phase)
 {
     if (phase == NULL) {
@@ -540,8 +553,7 @@ static void enter_phase(main_task_ctx_t *ctx,
     ctx->target_distance_m = get_phase_target_distance_m(phase);
     ctx->geometry_heading_deg = phase->geometry_heading_deg;
     if (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) {
-        ctx->hold_heading_deg =
-            wrap_angle_deg(ctx->field_yaw_offset_deg + phase->geometry_heading_deg);
+        ctx->hold_heading_deg = get_field_heading_deg(ctx, phase);
     } else {
         ctx->hold_heading_deg = feedback->yaw_deg;
     }
@@ -710,6 +722,54 @@ static float run_arc_track(main_task_ctx_t *ctx,
                       zone_speed_mps);
     }
     return MAIN_ARC_SEARCH_SPEED_MPS;
+}
+
+static uint8_t run_arc_exit_heading_align(main_task_ctx_t *ctx,
+                                          const phase_descriptor_t *next_phase,
+                                          yaw_controller_t *yaw_controller,
+                                          const chassis_feedback_t *feedback,
+                                          chassis_command_t *command)
+{
+    float target_heading_deg;
+    float heading_term;
+    float abs_error;
+
+    if ((ctx == NULL) || (next_phase == NULL) || (feedback == NULL) ||
+        (command == NULL) ||
+        (next_phase->action != APP_PHASE_ACTION_GAP_TRAVERSE)) {
+        return 1u;
+    }
+
+    target_heading_deg = get_field_heading_deg(ctx, next_phase);
+    ctx->hold_heading_deg = target_heading_deg;
+    ctx->geometry_heading_deg = next_phase->geometry_heading_deg;
+
+    if ((feedback->imu_ready == 0u) || (feedback->imu_stable == 0u)) {
+        ctx->heading_error_deg = 0.0f;
+        YawController_Reset(yaw_controller);
+        return 1u;
+    }
+
+    ctx->heading_error_deg = wrap_angle_deg(target_heading_deg - feedback->yaw_deg);
+    abs_error = absf(ctx->heading_error_deg);
+
+    if ((abs_error <= MAIN_ARC_EXIT_HEADING_TOL_DEG) ||
+        (ctx->phase_distance_m >=
+            (ctx->target_distance_m + MAIN_ARC_EXIT_MAX_OVERRUN_M))) {
+        return 1u;
+    }
+
+    heading_term = YawController_Update(yaw_controller,
+                                        target_heading_deg,
+                                        feedback->yaw_deg,
+                                        feedback->gyro_z,
+                                        MAIN_DT_S);
+    command->w_radps = clampf(heading_term,
+                              -MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS,
+                              MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS);
+    ctx->target_speed_mps = MAIN_ARC_EXIT_ALIGN_SPEED_MPS;
+    ctx->state = APP_MAIN_STATE_ARC_EXIT_ALIGN;
+    return 0u;
 }
 
 static void enter_basic_mode(main_task_ctx_t *ctx,
@@ -1129,9 +1189,6 @@ void main_task(void *arg)
                 uint8_t next_lap_index;
                 const phase_descriptor_t *next_phase;
 
-                ctx.checkpoint_count = (uint8_t)(ctx.checkpoint_count + 1u);
-                app_state_emit_event(phase->complete_event);
-
                 if (resolve_next_sequence(&ctx, &next_sequence_index, &next_lap_index) == 0u) {
                     finish_challenge(&ctx, line_controller, yaw_controller, &challenge, NULL);
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
@@ -1146,6 +1203,17 @@ void main_task(void *arg)
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
                     continue;
                 }
+
+                if (run_arc_exit_heading_align(&ctx,
+                                               next_phase,
+                                               yaw_controller,
+                                               &feedback,
+                                               &command) == 0u) {
+                    break;
+                }
+
+                ctx.checkpoint_count = (uint8_t)(ctx.checkpoint_count + 1u);
+                app_state_emit_event(phase->complete_event);
 
                 ctx.sequence_index = next_sequence_index;
                 ctx.lap_index = next_lap_index;

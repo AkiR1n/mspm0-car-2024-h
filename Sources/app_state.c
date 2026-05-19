@@ -240,6 +240,8 @@ const char *app_main_state_name(app_main_state_t state)
         return "ARC_L";
     case APP_MAIN_STATE_ARC_LOST_RIGHT:
         return "ARC_R";
+    case APP_MAIN_STATE_ARC_EXIT_ALIGN:
+        return "ARC_ALIGN";
     case APP_MAIN_STATE_STOPPED:
         return "STOP";
     case APP_MAIN_STATE_IDLE:
