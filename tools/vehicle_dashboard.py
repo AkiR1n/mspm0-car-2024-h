@@ -64,6 +64,13 @@ class VehicleState:
 
     mode: str = "--"
     main_state: str = "--"
+    challenge: str = "--"
+    challenge_phase: str = "--"
+    challenge_action: str = "--"
+    challenge_event: str = "--"
+    lap_index: int = 0
+    lap_total: int = 0
+    checkpoint_count: int = 0
     stop: int = 0
     tick: int = 0
     irq_per_s: int = 0
@@ -144,6 +151,21 @@ def update_from_status_line(state: VehicleState, line: str) -> bool:
         state.mode = fields["mode"]
     if "state" in fields:
         state.main_state = fields["state"]
+    if "q" in fields:
+        parts = fields["q"].split("/", 1)
+        state.challenge = parts[1] if len(parts) == 2 and parts[1] != "NONE" else parts[0]
+    if "ph" in fields:
+        state.challenge_phase = fields["ph"]
+    if "act" in fields:
+        state.challenge_action = fields["act"]
+    if "evt" in fields:
+        state.challenge_event = fields["evt"]
+    if "lap" in fields:
+        parts = fields["lap"].split("/", 1)
+        state.lap_index = parse_int(parts[0], state.lap_index)
+        if len(parts) == 2:
+            state.lap_total = parse_int(parts[1], state.lap_total)
+    state.checkpoint_count = parse_int(fields.get("cp"), state.checkpoint_count)
     state.stop = parse_int(fields.get("stop"), state.stop)
     state.tick = parse_int(fields.get("tick"), state.tick)
     state.irq_per_s = parse_int(fields.get("irq/s"), state.irq_per_s)
@@ -558,7 +580,7 @@ class Dashboard(QtWidgets.QMainWindow):
     def _build_left_panel(self, outer, port: str, baud: int, auto_imu: bool) -> None:
         panel = QtWidgets.QFrame()
         panel.setObjectName("sidePanel")
-        panel.setFixedWidth(330)
+        panel.setFixedWidth(360)
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -616,17 +638,22 @@ class Dashboard(QtWidgets.QMainWindow):
         self.straight_distance.setRange(0.05, 2.50)
         self.straight_distance.setDecimals(2)
         self.straight_distance.setSingleStep(0.05)
-        self.straight_distance.setValue(0.30)
+        self.straight_distance.setValue(1.00)
         self.straight_speed.setRange(0.05, 0.70)
         self.straight_speed.setDecimals(2)
         self.straight_speed.setSingleStep(0.05)
-        self.straight_speed.setValue(0.20)
+        self.straight_speed.setValue(0.35)
         straight_form.addRow("Straight m", self.straight_distance)
         straight_form.addRow("Straight m/s", self.straight_speed)
         basic_layout.addLayout(straight_form)
         straight_btn = QtWidgets.QPushButton("Run Straight")
         straight_btn.clicked.connect(self.send_straight_command)
-        basic_layout.addWidget(straight_btn)
+        straight_row = QtWidgets.QHBoxLayout()
+        straight_q1_btn = QtWidgets.QPushButton("AB 1m")
+        straight_q1_btn.clicked.connect(self.send_ab_straight_command)
+        straight_row.addWidget(straight_btn)
+        straight_row.addWidget(straight_q1_btn)
+        basic_layout.addLayout(straight_row)
 
         line_form = QtWidgets.QFormLayout()
         line_form.setContentsMargins(0, 0, 0, 0)
@@ -635,7 +662,7 @@ class Dashboard(QtWidgets.QMainWindow):
         self.line_speed.setRange(0.05, 0.70)
         self.line_speed.setDecimals(2)
         self.line_speed.setSingleStep(0.02)
-        self.line_speed.setValue(0.12)
+        self.line_speed.setValue(0.18)
         self.line_distance.setRange(0.00, 2.50)
         self.line_distance.setDecimals(2)
         self.line_distance.setSingleStep(0.05)
@@ -646,13 +673,30 @@ class Dashboard(QtWidgets.QMainWindow):
         line_row = QtWidgets.QHBoxLayout()
         line_btn = QtWidgets.QPushButton("Run Line")
         line_btn.clicked.connect(self.send_line_command)
+        line_120_btn = QtWidgets.QPushButton("Line 1.2m")
+        line_120_btn.clicked.connect(self.send_line_120_command)
         line_stop_btn = QtWidgets.QPushButton("Stop")
         line_stop_btn.clicked.connect(lambda: self.send_command("stop"))
         line_row.addWidget(line_btn)
+        line_row.addWidget(line_120_btn)
         line_row.addWidget(line_stop_btn)
         basic_layout.addLayout(line_row)
+
+        q2_grid = QtWidgets.QGridLayout()
+        q2_grid.setHorizontalSpacing(6)
+        q2_grid.setVerticalSpacing(6)
+        for idx, (label, handler) in enumerate([
+            ("Select Q2", lambda: self.send_command("q2")),
+            ("Run Q2", self.send_q2_run_command),
+            ("Q2 Stop", lambda: self.send_command("stop")),
+            ("IMU Stat", lambda: self.send_command("imustat")),
+        ]):
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(handler)
+            q2_grid.addWidget(button, idx // 2, idx % 2)
+        basic_layout.addLayout(q2_grid)
         basic_layout.addStretch(1)
-        tabs.addTab(basic_tab, "Basic")
+        tabs.addTab(basic_tab, "Track")
 
         manual_tab = QtWidgets.QWidget()
         manual_layout = QtWidgets.QVBoxLayout(manual_tab)
@@ -710,6 +754,7 @@ class Dashboard(QtWidgets.QMainWindow):
             ("Show PID", "showpid"),
             ("UART Stat", "uartstat"),
             ("IMU 50ms", "imu,50"),
+            ("IMU Stat", "imustat"),
             ("IMU toggle", "imu"),
             ("Line Raw", "lineraw"),
         ]):
@@ -833,6 +878,10 @@ class Dashboard(QtWidgets.QMainWindow):
             f"straight,{self.straight_distance.value():.2f},{self.straight_speed.value():.2f}"
         )
 
+    def send_ab_straight_command(self) -> None:
+        self.straight_distance.setValue(1.00)
+        self.send_straight_command()
+
     def send_line_command(self) -> None:
         speed = self.line_speed.value()
         distance = self.line_distance.value()
@@ -840,6 +889,14 @@ class Dashboard(QtWidgets.QMainWindow):
             self.send_command(f"line,{speed:.2f},{distance:.2f}")
         else:
             self.send_command(f"line,{speed:.2f}")
+
+    def send_line_120_command(self) -> None:
+        self.line_distance.setValue(1.20)
+        self.send_line_command()
+
+    def send_q2_run_command(self) -> None:
+        self.send_command("q2")
+        self.send_command("run")
 
     def send_raw_command(self) -> None:
         text = self.raw_cmd.text().strip()
@@ -864,7 +921,10 @@ class Dashboard(QtWidgets.QMainWindow):
 
     def update_view(self) -> None:
         s = self.state
-        self.mode_card.set_values(s.mode, f"state={s.main_state}  stop={s.stop}  port={s.port}")
+        route = s.challenge
+        if s.lap_total > 0:
+            route = f"{route} lap={s.lap_index}/{s.lap_total} cp={s.checkpoint_count}"
+        self.mode_card.set_values(s.mode, f"{route}  state={s.main_state}  stop={s.stop}")
         target_text = "--" if s.target_distance_m <= 0.0 else f"{s.target_distance_m:.2f} m"
         self.distance_card.set_values(f"{s.distance_m:.2f} m", f"target {target_text}")
         self.heading_card.set_values(
@@ -899,6 +959,8 @@ class Dashboard(QtWidgets.QMainWindow):
         self.detail.setPlainText(
             "\n".join([
                 f"mode={s.mode} tick={s.tick} irq/s={s.irq_per_s}",
+                f"challenge={s.challenge} phase={s.challenge_phase} action={s.challenge_action} "
+                f"lap={s.lap_index}/{s.lap_total} cp={s.checkpoint_count} event={s.challenge_event}",
                 f"distance={s.distance_m:.3f}/{s.target_distance_m:.3f} "
                 f"hold={s.hold_heading:.1f} err={s.heading_error:.1f}",
                 f"speed target=({s.target_left_speed:.3f},{s.target_right_speed:.3f}) "
