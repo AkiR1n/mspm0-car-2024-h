@@ -20,8 +20,6 @@
 #define MAIN_GAP_CRUISE_SPEED_MPS         0.46f
 #define MAIN_GAP_END_SPEED_MPS            0.28f
 #define MAIN_GAP_W_LIMIT_RADPS            1.70f
-#define MAIN_GAP_COUNT_KP                 0.0025f
-#define MAIN_GAP_SPEED_KD                 0.55f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M 0.50f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS  0.25f
 #define MAIN_BASIC_STRAIGHT_END_SPEED_MPS      0.10f
@@ -640,16 +638,7 @@ static float run_gap_traverse(main_task_ctx_t *ctx,
                               const chassis_feedback_t *feedback,
                               chassis_command_t *command)
 {
-    float count_error;
-    float speed_error;
     float heading_term = 0.0f;
-    float left_progress;
-    float right_progress;
-
-    left_progress = (float)(feedback->left_count - ctx->phase_start_left_count);
-    right_progress = (float)(feedback->right_count - ctx->phase_start_right_count);
-    count_error = left_progress - right_progress;
-    speed_error = feedback->left_speed_mps - feedback->right_speed_mps;
 
     if ((feedback->imu_ready != 0u) && (feedback->imu_stable != 0u)) {
         ctx->heading_error_deg = wrap_angle_deg(ctx->hold_heading_deg - feedback->yaw_deg);
@@ -663,9 +652,7 @@ static float run_gap_traverse(main_task_ctx_t *ctx,
         YawController_Reset(yaw_controller);
     }
 
-    command->w_radps = clampf(heading_term +
-                                  (count_error * MAIN_GAP_COUNT_KP) +
-                                  (speed_error * MAIN_GAP_SPEED_KD),
+    command->w_radps = clampf(heading_term,
                               -MAIN_GAP_W_LIMIT_RADPS,
                               MAIN_GAP_W_LIMIT_RADPS);
     ctx->state = APP_MAIN_STATE_GAP;
@@ -890,22 +877,14 @@ static void run_basic_straight(main_task_ctx_t *ctx,
 {
     float remaining_m;
     float heading_term;
-    float count_error;
-    float speed_error;
 
     ctx->phase_distance_m = get_phase_distance_m(ctx, feedback);
     remaining_m = ctx->target_distance_m - ctx->phase_distance_m;
     heading_term = update_heading_hold(ctx, yaw_controller, feedback);
 
-    count_error = (float)(feedback->left_count - ctx->phase_start_left_count) -
-                  (float)(feedback->right_count - ctx->phase_start_right_count);
-    speed_error = feedback->left_speed_mps - feedback->right_speed_mps;
-
     command->stop = 0u;
     command->enable_closed_loop = 1u;
-    command->w_radps = clampf(heading_term +
-                                  (count_error * MAIN_GAP_COUNT_KP) +
-                                  (speed_error * MAIN_GAP_SPEED_KD),
+    command->w_radps = clampf(heading_term,
                               -MAIN_GAP_W_LIMIT_RADPS,
                               MAIN_GAP_W_LIMIT_RADPS);
     ctx->target_speed_mps = select_basic_straight_speed(ctx->cruise_speed_mps, remaining_m);
