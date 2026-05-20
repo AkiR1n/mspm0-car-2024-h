@@ -16,7 +16,7 @@ import queue
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +34,17 @@ PAIR_RE = re.compile(r"(?P<name>\w+)=\((?P<a>-?\d+(?:\.\d+)?),(?P<b>-?\d+(?:\.\d
 FIELD_RE = re.compile(r"(?P<name>[A-Za-z_][\w/]*)=(?P<value>0x[0-9A-Fa-f]+|-?\d+(?:\.\d+)?|[A-Za-z0-9_./@-]+)")
 IMU_FIELD_RE = re.compile(r"(?P<name>\w+)=(?P<value>-?\d+(?:\.\d+)?)")
 DIST_RE = re.compile(r"dist=(?P<now>-?\d+(?:\.\d+)?)/(?P<target>-?\d+(?:\.\d+)?)")
+HDG_RE = re.compile(
+    r"hdg=\((?P<geo>-?\d+(?:\.\d+)?),(?P<hold>-?\d+(?:\.\d+)?),(?P<err>-?\d+(?:\.\d+)?)\)"
+)
+PID_RE = re.compile(
+    r"pid\[(?P<label>left|right)\]\s+kp=(?P<kp>-?\d+(?:\.\d+)?)\s+"
+    r"ki=(?P<ki>-?\d+(?:\.\d+)?)\s+kd=(?P<kd>-?\d+(?:\.\d+)?)\s+"
+    r"ff=(?P<ff>-?\d+(?:\.\d+)?)\s+mode=(?P<mode>\w+)\s+"
+    r"alpha=(?P<alpha>-?\d+(?:\.\d+)?)\s+"
+    r"out=\((?P<out_min>-?\d+(?:\.\d+)?),(?P<out_max>-?\d+(?:\.\d+)?)\)\s+"
+    r"i=\((?P<i_min>-?\d+(?:\.\d+)?),(?P<i_max>-?\d+(?:\.\d+)?)\)"
+)
 
 
 def parse_float(text: str | None, default: float = 0.0) -> float:
@@ -105,6 +116,8 @@ class VehicleState:
     yaw_dmp: float = 0.0
     yaw_rel: float = 0.0
     gz: float = 0.0
+    gz_raw: float = 0.0
+    gz_bias: float = 0.0
     gx: float = 0.0
     gy: float = 0.0
     ax: float = 0.0
@@ -112,13 +125,31 @@ class VehicleState:
     az: float = 0.0
     pitch: float = 0.0
     roll: float = 0.0
+    imu_bias_committed: int = 0
+    imu_sign: float = 0.0
+    imu_sens: float = 0.0
     imu_up_ms: int = 0
+
+    auto_enabled: int = 0
+    auto_phase: str = "-"
+    last_ack: str = ""
+
+    pid: dict = field(default_factory=lambda: {"left": {}, "right": {}})
+    line_logic: str = "--"
+    line_raw: str = "-------"
+    line_norm: str = "-------"
+    line_raw_bits: int = 0
+    line_norm_bits: int = 0
+    line_channels: list = field(default_factory=lambda: [{"pin": "--", "raw": 0, "norm": 0} for _ in range(7)])
+    line_aux: dict = field(default_factory=dict)
+    uart_stats: dict = field(default_factory=dict)
+    imu_uart_stats: dict = field(default_factory=dict)
 
     raw_line: str = ""
 
 
 def update_from_status_line(state: VehicleState, line: str) -> bool:
-    if "mode=" not in line:
+    if not line.startswith("mode="):
         return False
 
     fields = {m.group("name"): m.group("value") for m in FIELD_RE.finditer(line)}
@@ -153,6 +184,10 @@ def update_from_status_line(state: VehicleState, line: str) -> bool:
     if dist_match:
         state.distance_m = parse_float(dist_match.group("now"), state.distance_m)
         state.target_distance_m = parse_float(dist_match.group("target"), state.target_distance_m)
+    hdg_match = HDG_RE.search(line)
+    if hdg_match:
+        state.hold_heading = parse_float(hdg_match.group("hold"), state.hold_heading)
+        state.heading_error = parse_float(hdg_match.group("err"), state.heading_error)
     if "line" in fields:
         state.line = fields["line"]
     if "bits" in fields:
@@ -205,6 +240,8 @@ def update_from_imu_line(state: VehicleState, line: str) -> bool:
     state.yaw_dmp = parse_float(fields.get("yaw_dmp"), state.yaw_dmp)
     state.yaw_rel = parse_float(fields.get("yaw_rel"), state.yaw_rel)
     state.gz = parse_float(fields.get("gz"), state.gz)
+    state.gz_raw = parse_float(fields.get("gz_raw"), state.gz_raw)
+    state.gz_bias = parse_float(fields.get("gz_bias"), state.gz_bias)
     state.gx = parse_float(fields.get("gx"), state.gx)
     state.gy = parse_float(fields.get("gy"), state.gy)
     state.ax = parse_float(fields.get("ax"), state.ax)
@@ -214,8 +251,180 @@ def update_from_imu_line(state: VehicleState, line: str) -> bool:
     state.roll = parse_float(fields.get("roll"), state.roll)
     state.imu_ready = parse_int(fields.get("rdy"), state.imu_ready)
     state.imu_stable = parse_int(fields.get("stb"), state.imu_stable)
+    state.imu_bias_committed = parse_int(fields.get("bias"), state.imu_bias_committed)
+    state.imu_sign = parse_float(fields.get("sign"), state.imu_sign)
+    state.imu_sens = parse_float(fields.get("sens"), state.imu_sens)
     state.imu_up_ms = parse_int(fields.get("up"), state.imu_up_ms)
+    ok_match = re.search(r"ok=\(a(?P<angle>\d+),g(?P<gyro>\d+)\)", line)
+    err_match = re.search(r"err=\(sum(?P<sum>\d+),sync(?P<sync>\d+),of(?P<overflow>\d+),hw(?P<hw>\d+)\)", line)
+    if "rx" in fields:
+        state.imu_uart_stats["rx"] = parse_int(fields.get("rx"), state.imu_uart_stats.get("rx", 0))
+    if ok_match:
+        state.imu_uart_stats["angle"] = parse_int(ok_match.group("angle"))
+        state.imu_uart_stats["gyro"] = parse_int(ok_match.group("gyro"))
+    if err_match:
+        state.imu_uart_stats["sumerr"] = parse_int(err_match.group("sum"))
+        state.imu_uart_stats["sync"] = parse_int(err_match.group("sync"))
+        state.imu_uart_stats["overflow"] = parse_int(err_match.group("overflow"))
+        state.imu_uart_stats["hw_overrun"] = parse_int(err_match.group("hw"))
     return True
+
+
+def update_from_pid_line(state: VehicleState, line: str) -> bool:
+    match = PID_RE.search(line)
+    if match is None:
+        return False
+    label = match.group("label")
+    state.raw_line = line
+    state.last_line_time = time.time()
+    state.pid[label] = {
+        "kp": parse_float(match.group("kp")),
+        "ki": parse_float(match.group("ki")),
+        "kd": parse_float(match.group("kd")),
+        "ff": parse_float(match.group("ff")),
+        "mode": match.group("mode"),
+        "alpha": parse_float(match.group("alpha")),
+        "out_min": parse_float(match.group("out_min")),
+        "out_max": parse_float(match.group("out_max")),
+        "i_min": parse_float(match.group("i_min")),
+        "i_max": parse_float(match.group("i_max")),
+    }
+    return True
+
+
+def update_from_auto_line(state: VehicleState, line: str) -> bool:
+    if not line.startswith("auto,"):
+        return False
+
+    parts = [part.strip() for part in line.split(",")]
+    state.raw_line = line
+    state.last_line_time = time.time()
+
+    if len(parts) >= 3 and parts[1] == "ack":
+        state.last_ack = line
+        if parts[2] == "on":
+            state.auto_enabled = 1
+        elif parts[2] == "off":
+            state.auto_enabled = 0
+        elif parts[2] == "phase" and len(parts) >= 4:
+            state.auto_phase = parts[3]
+        elif parts[2] == "stop":
+            state.auto_enabled = 0
+        return True
+
+    if len(parts) >= 13 and parts[1] == "pid":
+        label = parts[2]
+        if label in ("left", "right"):
+            state.pid[label] = {
+                "kp": parse_float(parts[3]),
+                "ki": parse_float(parts[4]),
+                "kd": parse_float(parts[5]),
+                "ff": parse_float(parts[6]),
+                "mode": parts[7],
+                "alpha": parse_float(parts[8]),
+                "out_min": parse_float(parts[9]),
+                "out_max": parse_float(parts[10]),
+                "i_min": parse_float(parts[11]),
+                "i_max": parse_float(parts[12]),
+            }
+            return True
+
+    if len(parts) >= 18 and parts[1] == "sample":
+        state.auto_phase = parts[3]
+        state.mode = parts[4]
+        state.cmd_left_speed = parse_float(parts[7], state.cmd_left_speed)
+        state.cmd_right_speed = parse_float(parts[8], state.cmd_right_speed)
+        state.target_left_speed = parse_float(parts[9], state.target_left_speed)
+        state.target_right_speed = parse_float(parts[10], state.target_right_speed)
+        state.measured_left_speed = parse_float(parts[11], state.measured_left_speed)
+        state.measured_right_speed = parse_float(parts[12], state.measured_right_speed)
+        state.applied_left_duty = parse_float(parts[13], state.applied_left_duty)
+        state.applied_right_duty = parse_float(parts[14], state.applied_right_duty)
+        state.count_left = parse_int(parts[15], state.count_left)
+        state.count_right = parse_int(parts[16], state.count_right)
+        state.irq_per_s = parse_int(parts[17], state.irq_per_s)
+        if len(parts) >= 19:
+            state.tick = parse_int(parts[18], state.tick)
+        return True
+
+    state.last_ack = line
+    return True
+
+
+def update_from_line_tool_line(state: VehicleState, line: str) -> bool:
+    if line.startswith("linecfg "):
+        state.raw_line = line
+        state.last_line_time = time.time()
+        for index, pin in re.findall(r"(\d):([A-Za-z0-9_]+)", line):
+            idx = parse_int(index, -1)
+            if 0 <= idx < len(state.line_channels):
+                state.line_channels[idx]["pin"] = pin
+        return True
+
+    if line.startswith("line_logic="):
+        state.raw_line = line
+        state.last_line_time = time.time()
+        state.line_logic = line.split("=", 1)[1].strip()
+        return True
+
+    if line.startswith("lineraw "):
+        fields = {m.group("name"): m.group("value") for m in FIELD_RE.finditer(line)}
+        state.raw_line = line
+        state.last_line_time = time.time()
+        state.line_logic = fields.get("logic", state.line_logic)
+        state.line_raw = fields.get("raw", state.line_raw)
+        state.line_norm = fields.get("norm", state.line_norm)
+        state.line_norm_bits = parse_int(fields.get("bits"), state.line_norm_bits)
+        state.line_bits = state.line_norm_bits
+        state.line_detected = parse_int(fields.get("det"), state.line_detected)
+        state.line_position = parse_int(fields.get("pos"), state.line_position)
+        state.line = state.line_norm
+        return True
+
+    channel_match = re.match(r"linech\[(?P<idx>\d+)\]\s+pin=(?P<pin>\S+)\s+raw=(?P<raw>\d+)\s+norm=(?P<norm>\d+)", line)
+    if channel_match:
+        idx = parse_int(channel_match.group("idx"), -1)
+        if 0 <= idx < len(state.line_channels):
+            state.raw_line = line
+            state.last_line_time = time.time()
+            state.line_channels[idx] = {
+                "pin": channel_match.group("pin"),
+                "raw": parse_int(channel_match.group("raw")),
+                "norm": parse_int(channel_match.group("norm")),
+            }
+            return True
+
+    if line.startswith("lineaux "):
+        fields = {m.group("name"): parse_int(m.group("value")) for m in FIELD_RE.finditer(line)}
+        state.raw_line = line
+        state.last_line_time = time.time()
+        state.line_aux = fields
+        return True
+
+    return False
+
+
+def update_from_stats_line(state: VehicleState, line: str) -> bool:
+    if line.startswith(("uart0 ", "uart1 ")):
+        name, rest = line.split(" ", 1)
+        state.raw_line = line
+        state.last_line_time = time.time()
+        state.uart_stats[name] = {
+            m.group("name"): parse_int(m.group("value"))
+            for m in FIELD_RE.finditer(rest)
+        }
+        return True
+
+    if line.startswith("imu_uart "):
+        state.raw_line = line
+        state.last_line_time = time.time()
+        state.imu_uart_stats.update({
+            m.group("name"): parse_int(m.group("value"))
+            for m in FIELD_RE.finditer(line)
+        })
+        return True
+
+    return False
 
 
 class DashboardHub:
@@ -340,7 +549,14 @@ class DashboardHub:
             if not line:
                 continue
             with self._lock:
-                parsed = update_from_status_line(self.state, line) or update_from_imu_line(self.state, line)
+                parsed = (
+                    update_from_status_line(self.state, line)
+                    or update_from_imu_line(self.state, line)
+                    or update_from_pid_line(self.state, line)
+                    or update_from_auto_line(self.state, line)
+                    or update_from_line_tool_line(self.state, line)
+                    or update_from_stats_line(self.state, line)
+                )
                 snapshot = asdict(copy.deepcopy(self.state))
             self._broadcast({"kind": "line", "line": line, "parsed": parsed, "state": snapshot})
 

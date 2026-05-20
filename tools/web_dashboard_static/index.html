@@ -43,6 +43,7 @@
           <button data-view="overview" class="active">Overview</button>
           <button data-view="track">Track</button>
           <button data-view="manual">Manual</button>
+          <button data-view="tuning">Tuning</button>
           <button data-view="tools">Tools</button>
           <button data-view="logs">Logs</button>
         </nav>
@@ -166,13 +167,17 @@
             </section>
 
             <section class="panel">
-              <div class="section-title"><h3>Q2</h3><span>A-B-C-D-A</span></div>
-              <div class="button-grid">
-                <button data-command="q2">Select Q2</button>
-                <button id="runQ2">Run Q2</button>
+              <div class="section-title"><h3>Challenge</h3><span>H problem</span></div>
+              <div class="challenge-grid">
+                <button data-select-run="q1">Run Q1</button>
+                <button data-select-run="q2">Run Q2</button>
+                <button data-select-run="q3">Run Q3</button>
+                <button data-select-run="q4">Run Q4</button>
                 <button data-command="q1" class="secondary">Select Q1</button>
+                <button data-command="q2" class="secondary">Select Q2</button>
                 <button data-command="q3" class="secondary">Select Q3</button>
                 <button data-command="q4" class="secondary">Select Q4</button>
+                <button data-command="run" class="secondary">Run Selected</button>
                 <button data-command="stop" class="danger">Stop</button>
               </div>
             </section>
@@ -182,6 +187,14 @@
         <section id="manual" class="view">
           <div class="control-grid">
             <section class="panel">
+              <div class="section-title"><h3>Duty</h3><span>open loop %</span></div>
+              <div class="form-grid">
+                <label>Left %<input id="dutyLeft" type="number" step="5" value="10" /></label>
+                <label>Right %<input id="dutyRight" type="number" step="5" value="10" /></label>
+              </div>
+              <button id="setDuty">Set Duty</button>
+            </section>
+            <section class="panel">
               <div class="section-title"><h3>Wheel Ratio</h3><span>speed command</span></div>
               <div class="form-grid">
                 <label>Base m/s<input id="wheelBase" type="number" step="0.05" value="0.20" /></label>
@@ -189,6 +202,14 @@
                 <label>Right %<input id="rightRatio" type="number" step="5" value="100" /></label>
               </div>
               <button id="setWheelRatio">Set Wheel Ratio</button>
+            </section>
+            <section class="panel">
+              <div class="section-title"><h3>Wheel Speed</h3><span>closed loop</span></div>
+              <div class="form-grid">
+                <label>Left m/s<input id="speedLeft" type="number" step="0.02" value="0.20" /></label>
+                <label>Right m/s<input id="speedRight" type="number" step="0.02" value="0.20" /></label>
+              </div>
+              <button id="setWheelSpeed">Set Speed</button>
             </section>
             <section class="panel">
               <div class="section-title"><h3>Twist</h3><span>v / w</span></div>
@@ -201,26 +222,100 @@
           </div>
         </section>
 
+        <section id="tuning" class="view">
+          <div class="control-grid">
+            <section class="panel">
+              <div class="section-title"><h3>Wheel PID</h3><span>volatile firmware state</span></div>
+              <div class="form-grid compact-form">
+                <label>Wheel<select id="pidWheel"><option value="both">Both</option><option value="left">Left</option><option value="right">Right</option></select></label>
+                <label>Kp<input id="pidKp" type="number" step="0.001" value="0.265832" /></label>
+                <label>Ki<input id="pidKi" type="number" step="0.001" value="3.322895" /></label>
+                <label>Kd<input id="pidKd" type="number" step="0.001" value="0" /></label>
+                <label>FF<input id="pidFf" type="number" step="0.001" value="1.163013" /></label>
+              </div>
+              <div class="button-row">
+                <button id="applyPid">Apply PID</button>
+                <button data-command="auto,pid" class="secondary">Read PID</button>
+              </div>
+              <pre id="pidState" class="state-pre">pid unknown</pre>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>IMU</h3><span>WT101 monitor</span></div>
+              <div class="form-grid compact-form">
+                <label>Report ms<input id="imuPeriod" type="number" min="20" max="2000" step="10" value="50" /></label>
+                <label>Gyro Z sign<input id="imuSign" type="number" step="1" value="-1" /></label>
+                <label>Sensitivity<input id="imuSens" type="number" step="1" value="32768" /></label>
+              </div>
+              <div class="button-grid">
+                <button id="setImuPeriod">IMU Stream</button>
+                <button id="setImuSign" class="secondary">Set Sign</button>
+                <button id="setImuSens" class="secondary">Set Sens</button>
+                <button data-command="imustat" class="secondary">Read Stat</button>
+              </div>
+              <pre id="imuState" class="state-pre">imu unknown</pre>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>Auto Stream</h3><span>data capture helper</span></div>
+              <div class="form-grid">
+                <label>Phase label<input id="autoPhase" value="idle" /></label>
+                <label>Sample command<input id="autoCommand" value="auto,sample" /></label>
+              </div>
+              <div class="button-grid">
+                <button data-command="auto,on">Auto On</button>
+                <button data-command="auto,off" class="secondary">Auto Off</button>
+                <button id="setAutoPhase" class="secondary">Set Phase</button>
+                <button id="autoSample" class="secondary">Sample Once</button>
+                <button data-command="auto,stop" class="danger">Auto Stop</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
         <section id="tools" class="view">
-          <section class="panel">
-            <div class="section-title"><h3>Commands</h3><span>firmware console</span></div>
-            <div class="button-grid">
-              <button data-command="showpid">Show PID</button>
-              <button data-command="uartstat">UART Stat</button>
-              <button data-command="uartstat,clear">Clear UART Stat</button>
-              <button data-command="imustat">IMU Stat</button>
-              <button data-command="lineraw">Line Raw</button>
-              <button data-command="linecfg">Line Config</button>
-              <button data-command="imu,50">IMU 50ms</button>
-              <button data-command="imu">IMU Toggle</button>
-              <button data-command="main">Main</button>
-              <button data-command="stop" class="danger">Stop</button>
-            </div>
-            <div class="raw-row">
-              <input id="rawCommand" placeholder="raw command" />
-              <button id="sendRaw">Send</button>
-            </div>
-          </section>
+          <div class="control-grid">
+            <section class="panel">
+              <div class="section-title"><h3>Commands</h3><span>firmware console</span></div>
+              <div class="button-grid">
+                <button data-command="help">Help</button>
+                <button data-command="showpid">Show PID</button>
+                <button data-command="uartstat">UART Stat</button>
+                <button data-command="uartstat,clear">Clear UART Stat</button>
+                <button data-command="imustat">IMU Stat</button>
+                <button data-command="lineraw">Line Raw</button>
+                <button data-command="linecfg">Line Config</button>
+                <button data-command="linecfg,reset">Line Reset</button>
+                <button data-command="imu,50">IMU 50ms</button>
+                <button data-command="imu">IMU Toggle</button>
+                <button data-command="main">Main</button>
+                <button data-command="stop" class="danger">Stop</button>
+              </div>
+              <div class="raw-row">
+                <input id="rawCommand" placeholder="raw command" />
+                <button id="sendRaw">Send</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>Line Config</h3><span>sensor mapping</span></div>
+              <div id="lineMap" class="line-map"></div>
+              <div class="form-grid">
+                <label>Index<input id="lineCfgIndex" type="number" min="0" max="6" value="0" /></label>
+                <label>Pin<input id="lineCfgPin" value="PB18" /></label>
+              </div>
+              <div class="button-row">
+                <button id="applyLineCfg">Set Mapping</button>
+                <button data-command="linepol,0" class="secondary">Black Low</button>
+                <button data-command="linepol,1" class="secondary">Black High</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title"><h3>Stats</h3><span>uart / imu</span></div>
+              <pre id="statsState" class="state-pre">stats unknown</pre>
+            </section>
+          </div>
         </section>
 
         <section id="logs" class="view">

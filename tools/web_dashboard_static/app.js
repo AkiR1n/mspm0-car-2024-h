@@ -39,6 +39,8 @@ const state = {
   yaw_dmp: 0,
   yaw_rel: 0,
   gz: 0,
+  gz_raw: 0,
+  gz_bias: 0,
   gx: 0,
   gy: 0,
   ax: 0,
@@ -46,7 +48,23 @@ const state = {
   az: 0,
   pitch: 0,
   roll: 0,
+  imu_bias_committed: 0,
+  imu_sign: 0,
+  imu_sens: 0,
   imu_up_ms: 0,
+  auto_enabled: 0,
+  auto_phase: "-",
+  last_ack: "",
+  pid: { left: {}, right: {} },
+  line_logic: "--",
+  line_raw: "-------",
+  line_norm: "-------",
+  line_raw_bits: 0,
+  line_norm_bits: 0,
+  line_channels: Array.from({ length: 7 }, () => ({ pin: "--", raw: 0, norm: 0 })),
+  line_aux: {},
+  uart_stats: {},
+  imu_uart_stats: {},
   raw_line: "",
 };
 
@@ -90,6 +108,16 @@ function pushHistory() {
 function setText(id, text) {
   const el = $(id);
   if (el) el.textContent = text;
+}
+
+function compactJson(value) {
+  return JSON.stringify(value || {}, null, 2);
+}
+
+function pidText(label) {
+  const pid = (state.pid && state.pid[label]) || {};
+  if (!Object.keys(pid).length) return `${label}: --`;
+  return `${label}: kp=${fmt(pid.kp, 4)} ki=${fmt(pid.ki, 4)} kd=${fmt(pid.kd, 4)} ff=${fmt(pid.ff, 4)} mode=${pid.mode || "--"} alpha=${fmt(pid.alpha, 3)}`;
 }
 
 async function api(path, body) {
@@ -177,9 +205,24 @@ function render() {
     `speed target=(${fmt(state.target_left_speed, 3)},${fmt(state.target_right_speed, 3)}) meas=(${fmt(state.measured_left_speed, 3)},${fmt(state.measured_right_speed, 3)}) duty=(${fmt(state.applied_left_duty, 3)},${fmt(state.applied_right_duty, 3)})`,
     `imu ready=${state.imu_ready} stable=${state.imu_stable} yaw=${fmt(state.yaw, 2)} gz=${fmt(state.gz, 2)} gx=${fmt(state.gx, 2)} gy=${fmt(state.gy, 2)} pitch=${fmt(state.pitch, 1)} roll=${fmt(state.roll, 1)}`,
     `line=${state.line} bits=0x${Number(state.line_bits || 0).toString(16).toUpperCase().padStart(2, "0")} det=${state.line_detected} pos=${state.line_position}`,
+    `auto=${state.auto_enabled ? "on" : "off"} phase=${state.auto_phase || "-"} ack=${state.last_ack || "-"}`,
     `last: ${state.raw_line || ""}`,
   ].join("\n"));
+  setText("pidState", [pidText("left"), pidText("right")].join("\n"));
+  setText("imuState", [
+    `ready=${state.imu_ready} stable=${state.imu_stable} bias=${state.imu_bias_committed}`,
+    `yaw=${fmt(state.yaw, 2)} yaw_dmp=${fmt(state.yaw_dmp, 2)} yaw_rel=${fmt(state.yaw_rel, 2)}`,
+    `gz=${fmt(state.gz, 2)} raw=${fmt(state.gz_raw, 2)} bias=${fmt(state.gz_bias, 2)}`,
+    `sign=${fmt(state.imu_sign, 1)} sens=${fmt(state.imu_sens, 1)} up=${state.imu_up_ms}ms`,
+  ].join("\n"));
+  setText("statsState", [
+    `uart=${compactJson(state.uart_stats)}`,
+    `imu_uart=${compactJson(state.imu_uart_stats)}`,
+    `line_logic=${state.line_logic} raw=${state.line_raw} norm=${state.line_norm}`,
+    `line_aux=${compactJson(state.line_aux)}`,
+  ].join("\n"));
   renderLineSensors();
+  renderLineMap();
   drawCompass();
   drawChart($("speedChart"), [
     { name: "L meas", data: hist.left, color: "#38bdf8" },
@@ -201,6 +244,20 @@ function renderLineSensors() {
     const div = document.createElement("div");
     div.className = `sensor ${text[i] === "1" ? "active" : ""}`;
     div.textContent = String(i);
+    wrap.appendChild(div);
+  }
+}
+
+function renderLineMap() {
+  const wrap = $("lineMap");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const channels = Array.isArray(state.line_channels) ? state.line_channels : [];
+  for (let i = 0; i < 7; i += 1) {
+    const ch = channels[i] || {};
+    const div = document.createElement("div");
+    div.className = `line-map-item ${ch.norm ? "active" : ""}`;
+    div.innerHTML = `<strong>${i}</strong><span>${ch.pin || "--"}</span><small>raw=${ch.raw || 0} norm=${ch.norm || 0}</small>`;
     wrap.appendChild(div);
   }
 }
@@ -313,6 +370,12 @@ function wireUi() {
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.addEventListener("click", () => sendCommand(button.dataset.command));
   });
+  document.querySelectorAll("[data-select-run]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await sendCommand(button.dataset.selectRun);
+      await sendCommand("run");
+    });
+  });
   $("refreshPorts").addEventListener("click", refreshPorts);
   $("connectBtn").addEventListener("click", async () => {
     try {
@@ -340,17 +403,30 @@ function wireUi() {
     $("lineDistance").value = "1.20";
     $("runLine").click();
   });
-  $("runQ2").addEventListener("click", () => {
-    sendCommand("q2");
-    sendCommand("run");
-  });
+  $("setDuty").addEventListener("click", () => sendCommand(`${num($("dutyLeft").value).toFixed(1)},${num($("dutyRight").value).toFixed(1)}`));
   $("setWheelRatio").addEventListener("click", () => {
     const base = num($("wheelBase").value, 0);
     const left = base * num($("leftRatio").value, 100) / 100;
     const right = base * num($("rightRatio").value, 100) / 100;
     sendCommand(`spd,${left.toFixed(3)},${right.toFixed(3)}`);
   });
+  $("setWheelSpeed").addEventListener("click", () => sendCommand(`spd,${num($("speedLeft").value).toFixed(3)},${num($("speedRight").value).toFixed(3)}`));
   $("setTwist").addEventListener("click", () => sendCommand(`twist,${num($("twistV").value).toFixed(3)},${num($("twistW").value).toFixed(3)}`));
+  $("applyPid").addEventListener("click", () => {
+    const wheel = $("pidWheel").value;
+    const prefix = wheel === "left" ? "pidl" : wheel === "right" ? "pidr" : "pid";
+    sendCommand(`${prefix},${num($("pidKp").value).toFixed(6)},${num($("pidKi").value).toFixed(6)},${num($("pidKd").value).toFixed(6)},${num($("pidFf").value).toFixed(6)}`);
+  });
+  $("setImuPeriod").addEventListener("click", () => sendCommand(`imu,${Math.round(num($("imuPeriod").value, 50))}`));
+  $("setImuSign").addEventListener("click", () => sendCommand(`imuz,${num($("imuSign").value, -1).toFixed(1)}`));
+  $("setImuSens").addEventListener("click", () => sendCommand(`imus,${num($("imuSens").value, 0).toFixed(1)}`));
+  $("setAutoPhase").addEventListener("click", () => sendCommand(`auto,phase,${$("autoPhase").value.trim() || "idle"}`));
+  $("autoSample").addEventListener("click", () => sendCommand($("autoCommand").value.trim() || "auto,sample"));
+  $("applyLineCfg").addEventListener("click", () => {
+    const index = Math.max(0, Math.min(6, Math.round(num($("lineCfgIndex").value, 0))));
+    const pin = $("lineCfgPin").value.trim();
+    if (pin) sendCommand(`linecfg,${index},${pin}`);
+  });
   $("sendRaw").addEventListener("click", () => {
     const input = $("rawCommand");
     sendCommand(input.value.trim());
