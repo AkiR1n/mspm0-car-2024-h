@@ -24,6 +24,8 @@
 #define MAIN_GAP_D_CENTER_POS_MAX         10
 #define MAIN_GAP_D_CENTER_W_SCALE         0.35f
 #define MAIN_GAP_D_CENTER_W_LIMIT_RADPS   0.55f
+#define MAIN_GAP_ARC_FALLBACK_MARGIN_M    0.08f
+#define MAIN_GAP_ARC_FALLBACK_SPEED_MPS   0.20f
 #define MAIN_GAP_W_LIMIT_RADPS            1.70f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M 0.50f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS  0.25f
@@ -57,6 +59,13 @@
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
 #define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
 #define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.18f
+#define MAIN_FINAL_A_ALIGN_START_M        0.92f
+#define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.08f
+#define MAIN_FINAL_A_ALIGN_W_LIMIT_RADPS  0.35f
+#define MAIN_FINAL_A_EXIT_MIN_DISTANCE_M  1.16f
+#define MAIN_FINAL_A_EXIT_MAX_DISTANCE_M  1.34f
+#define MAIN_FINAL_A_EXIT_YAW_MIN_DEG     155.0f
+#define MAIN_FINAL_A_COMPENSATE_M         0.055f
 #define MAIN_REACQUIRE_CONFIRM_MS         40U
 #define MAIN_V_ACCEL_MPS2                 2.8f
 #define MAIN_V_DECEL_MPS2                 2.2f
@@ -113,11 +122,14 @@ typedef struct {
     float            phase_distance_m;
     float            target_distance_m;
     float            cruise_speed_mps;
+    float            arc_entry_yaw_deg;
+    float            final_a_comp_start_distance_m;
     float            field_yaw_offset_deg;
     float            geometry_heading_deg;
     float            hold_heading_deg;
     float            heading_error_deg;
     float            target_speed_mps;
+    uint8_t          final_a_compensating;
     app_main_state_t state;
 } main_task_ctx_t;
 
@@ -330,6 +342,37 @@ static uint8_t resolve_next_sequence(const main_task_ctx_t *ctx,
     return 1u;
 }
 
+static uint8_t resolve_next_phase_descriptor(const main_task_ctx_t *ctx,
+                                             uint8_t *next_sequence_index,
+                                             uint8_t *next_lap_index,
+                                             const phase_descriptor_t **next_phase)
+{
+    const phase_descriptor_t *phase;
+
+    if (next_phase != NULL) {
+        *next_phase = NULL;
+    }
+
+    if ((ctx == NULL) ||
+        (next_sequence_index == NULL) ||
+        (next_lap_index == NULL) ||
+        (next_phase == NULL)) {
+        return 0u;
+    }
+
+    if (resolve_next_sequence(ctx, next_sequence_index, next_lap_index) == 0u) {
+        return 0u;
+    }
+
+    phase = get_phase_descriptor(ctx->challenge_active, *next_sequence_index);
+    if (phase == NULL) {
+        return 0u;
+    }
+
+    *next_phase = phase;
+    return 1u;
+}
+
 static float get_phase_distance_m(const main_task_ctx_t *ctx,
                                   const chassis_feedback_t *feedback)
 {
@@ -410,6 +453,53 @@ static uint8_t phase_requires_centered_d_exit(const phase_descriptor_t *phase)
             (phase->complete_event == APP_EVENT_PASS_D))
                ? 1u
                : 0u;
+}
+
+static uint8_t phase_is_arc_track(const phase_descriptor_t *phase)
+{
+    return ((phase != NULL) &&
+            (phase->action == APP_PHASE_ACTION_ARC_TRACK) &&
+            (phase->arc_profile != NULL))
+               ? 1u
+               : 0u;
+}
+
+static uint8_t phase_is_final_a_arc(const phase_descriptor_t *phase,
+                                    const phase_descriptor_t *next_phase)
+{
+    return ((phase != NULL) &&
+            (next_phase != NULL) &&
+            (phase->phase == APP_CHALLENGE_PHASE_ARC_DA) &&
+            (phase->complete_event == APP_EVENT_PASS_A) &&
+            (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL) &&
+            (next_phase->phase == APP_CHALLENGE_PHASE_STOP_A))
+               ? 1u
+               : 0u;
+}
+
+static uint8_t gap_arc_encoder_fallback_ready(const phase_descriptor_t *phase,
+                                              const phase_descriptor_t *next_phase,
+                                              float phase_distance_m)
+{
+    if ((phase == NULL) || (phase_is_arc_track(next_phase) == 0u)) {
+        return 0u;
+    }
+
+    return (phase_distance_m >=
+            (phase->nominal_distance_m + MAIN_GAP_ARC_FALLBACK_MARGIN_M))
+               ? 1u
+               : 0u;
+}
+
+static uint8_t gap_arc_encoder_fallback_window(const phase_descriptor_t *phase,
+                                               const phase_descriptor_t *next_phase,
+                                               float phase_distance_m)
+{
+    if ((phase == NULL) || (phase_is_arc_track(next_phase) == 0u)) {
+        return 0u;
+    }
+
+    return (phase_distance_m >= phase->nominal_distance_m) ? 1u : 0u;
 }
 
 static uint8_t feedback_is_centered_for_d_exit(const chassis_feedback_t *feedback)
@@ -551,6 +641,59 @@ static float apply_arc_entry_w_limit(float w_radps, float phase_distance_m)
     return clampf(w_radps, -limit_radps, limit_radps);
 }
 
+static float apply_final_a_speed_limit(const phase_descriptor_t *phase,
+                                       float target_speed_mps,
+                                       float phase_distance_m)
+{
+    if ((phase == NULL) ||
+        (phase->phase != APP_CHALLENGE_PHASE_ARC_DA) ||
+        (phase_distance_m < MAIN_FINAL_A_ALIGN_START_M)) {
+        return target_speed_mps;
+    }
+
+    return clampf(target_speed_mps, 0.0f, MAIN_FINAL_A_ALIGN_SPEED_MPS);
+}
+
+static float get_arc_yaw_delta_deg(const main_task_ctx_t *ctx,
+                                   const chassis_feedback_t *feedback)
+{
+    if ((ctx == NULL) || (feedback == NULL)) {
+        return 0.0f;
+    }
+
+    return absf(wrap_angle_deg(feedback->yaw_deg - ctx->arc_entry_yaw_deg));
+}
+
+static uint8_t final_a_exit_gate_ready(const main_task_ctx_t *ctx,
+                                       const phase_descriptor_t *phase,
+                                       const chassis_feedback_t *feedback)
+{
+    float yaw_delta_deg;
+
+    if ((ctx == NULL) || (phase == NULL) ||
+        (phase->phase != APP_CHALLENGE_PHASE_ARC_DA) ||
+        (phase->arc_profile == NULL)) {
+        return 0u;
+    }
+
+    if ((feedback == NULL) ||
+        (feedback->line_detected != 0u) ||
+        (ctx->line_missing_ms < phase->arc_profile->lost_confirm_ms)) {
+        return 0u;
+    }
+
+    if (ctx->phase_distance_m < MAIN_FINAL_A_EXIT_MIN_DISTANCE_M) {
+        return 0u;
+    }
+
+    yaw_delta_deg = get_arc_yaw_delta_deg(ctx, feedback);
+    if (yaw_delta_deg >= MAIN_FINAL_A_EXIT_YAW_MIN_DEG) {
+        return 1u;
+    }
+
+    return (ctx->phase_distance_m >= MAIN_FINAL_A_EXIT_MAX_DISTANCE_M) ? 1u : 0u;
+}
+
 static float get_arc_inner_bias_w(const arc_profile_t *profile, float phase_distance_m)
 {
     float t;
@@ -681,6 +824,9 @@ static void enter_phase(main_task_ctx_t *ctx,
     ctx->arc_last_error = (float)feedback->line_position;
     ctx->phase_distance_m = 0.0f;
     ctx->target_distance_m = get_phase_target_distance_m(phase);
+    ctx->arc_entry_yaw_deg = feedback->yaw_deg;
+    ctx->final_a_comp_start_distance_m = 0.0f;
+    ctx->final_a_compensating = 0u;
     ctx->geometry_heading_deg = phase->geometry_heading_deg;
     if (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) {
         ctx->hold_heading_deg = get_field_heading_deg(ctx, phase);
@@ -847,6 +993,84 @@ static float run_arc_track(main_task_ctx_t *ctx,
                       zone_speed_mps);
     }
     return MAIN_ARC_SEARCH_SPEED_MPS;
+}
+
+static uint8_t run_final_a_heading_align(main_task_ctx_t *ctx,
+                                         const phase_descriptor_t *phase,
+                                         yaw_controller_t *yaw_controller,
+                                         const chassis_feedback_t *feedback,
+                                         chassis_command_t *command)
+{
+    float target_heading_deg;
+    float heading_term;
+
+    if ((ctx == NULL) || (phase == NULL) || (feedback == NULL) ||
+        (command == NULL)) {
+        return 1u;
+    }
+
+    target_heading_deg = get_field_heading_deg(ctx, phase);
+    ctx->hold_heading_deg = target_heading_deg;
+    ctx->geometry_heading_deg = phase->geometry_heading_deg;
+
+    if ((feedback->imu_ready == 0u) || (feedback->imu_stable == 0u)) {
+        ctx->heading_error_deg = 0.0f;
+        YawController_Reset(yaw_controller);
+        return 1u;
+    }
+
+    ctx->heading_error_deg = wrap_angle_deg(target_heading_deg - feedback->yaw_deg);
+    heading_term = YawController_Update(yaw_controller,
+                                        target_heading_deg,
+                                        feedback->yaw_deg,
+                                        feedback->gyro_z,
+                                        MAIN_DT_S);
+    command->w_radps = clampf(apply_heading_steer_sign(heading_term),
+                              -MAIN_FINAL_A_ALIGN_W_LIMIT_RADPS,
+                              MAIN_FINAL_A_ALIGN_W_LIMIT_RADPS);
+    ctx->target_speed_mps = MAIN_FINAL_A_ALIGN_SPEED_MPS;
+    ctx->state = APP_MAIN_STATE_ARC_EXIT_ALIGN;
+    return 0u;
+}
+
+static uint8_t run_final_a_compensate(main_task_ctx_t *ctx,
+                                      const phase_descriptor_t *phase,
+                                      yaw_controller_t *yaw_controller,
+                                      const chassis_feedback_t *feedback,
+                                      chassis_command_t *command)
+{
+    if ((ctx == NULL) || (phase == NULL) || (feedback == NULL) ||
+        (command == NULL)) {
+        return 1u;
+    }
+
+    if (ctx->final_a_compensating == 0u) {
+        if (final_a_exit_gate_ready(ctx, phase, feedback) == 0u) {
+            if (run_final_a_heading_align(ctx,
+                                          phase,
+                                          yaw_controller,
+                                          feedback,
+                                          command) != 0u) {
+                command->w_radps = 0.0f;
+                ctx->target_speed_mps = MAIN_FINAL_A_ALIGN_SPEED_MPS;
+                ctx->state = APP_MAIN_STATE_ARC_EXIT_ALIGN;
+            }
+            return 0u;
+        }
+        ctx->final_a_compensating = 1u;
+        ctx->final_a_comp_start_distance_m = ctx->phase_distance_m;
+        YawController_Reset(yaw_controller);
+    }
+
+    if ((ctx->phase_distance_m - ctx->final_a_comp_start_distance_m) >=
+        MAIN_FINAL_A_COMPENSATE_M) {
+        return 1u;
+    }
+
+    (void)run_final_a_heading_align(ctx, phase, yaw_controller, feedback, command);
+    ctx->target_speed_mps = MAIN_FINAL_A_ALIGN_SPEED_MPS;
+    ctx->state = APP_MAIN_STATE_ARC_EXIT_ALIGN;
+    return 0u;
 }
 
 static uint8_t run_arc_exit_heading_align(main_task_ctx_t *ctx,
@@ -1247,14 +1471,41 @@ void main_task(void *arg)
             }
             break;
 
-        case APP_PHASE_ACTION_GAP_TRAVERSE:
+        case APP_PHASE_ACTION_GAP_TRAVERSE: {
+            uint8_t next_sequence_index = 0u;
+            uint8_t next_lap_index = ctx.lap_index;
+            const phase_descriptor_t *next_phase = NULL;
+            uint8_t have_next_phase;
+            uint8_t d_center_required;
+            uint16_t confirm_ms;
+            uint8_t line_exit_ready;
+            uint8_t encoder_fallback_ready;
+
+            have_next_phase =
+                resolve_next_phase_descriptor(&ctx,
+                                              &next_sequence_index,
+                                              &next_lap_index,
+                                              &next_phase);
+            d_center_required = phase_requires_centered_d_exit(phase);
+            confirm_ms = (d_center_required != 0u)
+                             ? MAIN_GAP_D_CENTER_CONFIRM_MS
+                             : MAIN_REACQUIRE_CONFIRM_MS;
+
             target_v_mps = run_gap_traverse(&ctx, phase, yaw_controller, &feedback, &command);
-            if ((phase_requires_centered_d_exit(phase) != 0u) &&
-                (ctx.phase_distance_m >= phase->min_exit_m)) {
+            if ((d_center_required != 0u) && (ctx.phase_distance_m >= phase->min_exit_m)) {
                 target_v_mps = clampf(target_v_mps, 0.0f, MAIN_GAP_D_EXIT_SPEED_MPS);
                 apply_gap_d_exit_centering(phase, line_controller, &feedback, &command);
             } else {
                 LineController_Reset(line_controller);
+            }
+
+            if ((gap_arc_encoder_fallback_window(phase,
+                                                 next_phase,
+                                                 ctx.phase_distance_m) != 0u) &&
+                (feedback.line_detected == 0u)) {
+                target_v_mps = clampf(target_v_mps,
+                                      0.0f,
+                                      MAIN_GAP_ARC_FALLBACK_SPEED_MPS);
             }
             ctx.target_speed_mps = target_v_mps;
 
@@ -1263,11 +1514,8 @@ void main_task(void *arg)
                 ctx.line_seen_ms = 0u;
             } else if ((ctx.gap_left_line != 0u) &&
                        (ctx.phase_distance_m >= phase->min_exit_m)) {
-                if ((phase_requires_centered_d_exit(phase) == 0u) ||
+                if ((d_center_required == 0u) ||
                     (feedback_is_centered_for_d_exit(&feedback) != 0u)) {
-                    uint16_t confirm_ms = (phase_requires_centered_d_exit(phase) != 0u)
-                                              ? MAIN_GAP_D_CENTER_CONFIRM_MS
-                                              : MAIN_REACQUIRE_CONFIRM_MS;
                     ctx.line_seen_ms =
                         (uint16_t)(ctx.line_seen_ms + MAIN_TASK_PERIOD_MS);
                     if (ctx.line_seen_ms > confirm_ms) {
@@ -1280,26 +1528,26 @@ void main_task(void *arg)
                 ctx.line_seen_ms = 0u;
             }
 
-            if (ctx.line_seen_ms >=
-                ((phase_requires_centered_d_exit(phase) != 0u)
-                     ? MAIN_GAP_D_CENTER_CONFIRM_MS
-                     : MAIN_REACQUIRE_CONFIRM_MS)) {
-                uint8_t next_sequence_index;
-                uint8_t next_lap_index;
-                const phase_descriptor_t *next_phase;
+            line_exit_ready = (ctx.line_seen_ms >= confirm_ms) ? 1u : 0u;
+            encoder_fallback_ready =
+                ((have_next_phase != 0u) &&
+                 (gap_arc_encoder_fallback_ready(phase,
+                                                 next_phase,
+                                                 ctx.phase_distance_m) != 0u))
+                    ? 1u
+                    : 0u;
 
+            if ((line_exit_ready != 0u) || (encoder_fallback_ready != 0u)) {
                 ctx.checkpoint_count = (uint8_t)(ctx.checkpoint_count + 1u);
                 app_state_emit_event(phase->complete_event);
 
-                if (resolve_next_sequence(&ctx, &next_sequence_index, &next_lap_index) == 0u) {
+                if (have_next_phase == 0u) {
                     finish_challenge(&ctx, line_controller, yaw_controller, &challenge, NULL);
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
                     continue;
                 }
 
-                next_phase = get_phase_descriptor(ctx.challenge_active, next_sequence_index);
-                if ((next_phase == NULL) ||
-                    (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL)) {
+                if (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL) {
                     ctx.lap_index = next_lap_index;
                     finish_challenge(&ctx, line_controller, yaw_controller, &challenge, next_phase);
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
@@ -1312,9 +1560,24 @@ void main_task(void *arg)
                 enter_phase(&ctx, phase, &feedback, line_controller, yaw_controller);
             }
             break;
+        }
 
-        case APP_PHASE_ACTION_ARC_TRACK:
+        case APP_PHASE_ACTION_ARC_TRACK: {
+            uint8_t next_sequence_index = 0u;
+            uint8_t next_lap_index = ctx.lap_index;
+            const phase_descriptor_t *next_phase = NULL;
+            uint8_t have_next_phase;
+
+            have_next_phase =
+                resolve_next_phase_descriptor(&ctx,
+                                              &next_sequence_index,
+                                              &next_lap_index,
+                                              &next_phase);
+
             target_v_mps = run_arc_track(&ctx, phase, line_controller, &feedback, &command);
+            target_v_mps = apply_final_a_speed_limit(phase,
+                                                     target_v_mps,
+                                                     ctx.phase_distance_m);
             ctx.target_speed_mps = target_v_mps;
 
             if (feedback.line_detected == 0u) {
@@ -1324,20 +1587,24 @@ void main_task(void *arg)
             }
 
             if ((ctx.phase_distance_m >= phase->arc_profile->min_exit_m) &&
-                (ctx.line_missing_ms >= phase->arc_profile->lost_confirm_ms)) {
-                uint8_t next_sequence_index;
-                uint8_t next_lap_index;
-                const phase_descriptor_t *next_phase;
-
-                if (resolve_next_sequence(&ctx, &next_sequence_index, &next_lap_index) == 0u) {
+                ((ctx.line_missing_ms >= phase->arc_profile->lost_confirm_ms) ||
+                 (ctx.final_a_compensating != 0u))) {
+                if (have_next_phase == 0u) {
                     finish_challenge(&ctx, line_controller, yaw_controller, &challenge, NULL);
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
                     continue;
                 }
 
-                next_phase = get_phase_descriptor(ctx.challenge_active, next_sequence_index);
-                if ((next_phase == NULL) ||
-                    (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL)) {
+                if (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL) {
+                    if ((phase_is_final_a_arc(phase, next_phase) != 0u) &&
+                        (run_final_a_compensate(&ctx,
+                                                phase,
+                                                yaw_controller,
+                                                &feedback,
+                                                &command) == 0u)) {
+                        break;
+                    }
+
                     ctx.lap_index = next_lap_index;
                     finish_challenge(&ctx, line_controller, yaw_controller, &challenge, next_phase);
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
@@ -1361,6 +1628,7 @@ void main_task(void *arg)
                 enter_phase(&ctx, phase, &feedback, line_controller, yaw_controller);
             }
             break;
+        }
 
         case APP_PHASE_ACTION_STOP_AND_SIGNAL:
             finish_challenge(&ctx, line_controller, yaw_controller, &challenge, phase);
