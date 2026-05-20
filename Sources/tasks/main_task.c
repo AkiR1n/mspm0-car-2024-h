@@ -47,6 +47,11 @@
 #define MAIN_ARC_MAX_ERROR_THRESHOLD      30
 #define MAIN_ARC_EDGE_BOOST_THRESHOLD     18
 #define MAIN_ARC_EDGE_BOOST_MAX_SCALE     1.15f
+#define MAIN_ARC_ENTRY_HOLD_DISTANCE_M    0.10f
+#define MAIN_ARC_ENTRY_RAMP_END_M         0.25f
+#define MAIN_ARC_ENTRY_START_SPEED_MPS    0.28f
+#define MAIN_ARC_ENTRY_DA_START_SPEED_MPS 0.24f
+#define MAIN_ARC_ENTRY_W_LIMIT_RADPS      1.00f
 #define MAIN_ARC_EXIT_HEADING_TOL_DEG     8.0f
 #define MAIN_ARC_EXIT_OVERRUN_TOL_DEG     14.0f
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
@@ -482,6 +487,37 @@ static float select_arc_zone_speed(const arc_profile_t *profile, float phase_dis
     return profile->speed_rear_mps;
 }
 
+static float select_arc_entry_start_speed(const phase_descriptor_t *phase)
+{
+    if ((phase != NULL) && (phase->phase == APP_CHALLENGE_PHASE_ARC_DA)) {
+        return MAIN_ARC_ENTRY_DA_START_SPEED_MPS;
+    }
+    return MAIN_ARC_ENTRY_START_SPEED_MPS;
+}
+
+static float apply_arc_entry_speed_limit(const phase_descriptor_t *phase,
+                                         float zone_speed_mps,
+                                         float phase_distance_m)
+{
+    float entry_speed_mps;
+    float t;
+
+    if (phase_distance_m >= MAIN_ARC_ENTRY_RAMP_END_M) {
+        return zone_speed_mps;
+    }
+
+    entry_speed_mps = select_arc_entry_start_speed(phase);
+    if (phase_distance_m <= MAIN_ARC_ENTRY_HOLD_DISTANCE_M) {
+        return clampf(zone_speed_mps, 0.0f, entry_speed_mps);
+    }
+
+    t = (phase_distance_m - MAIN_ARC_ENTRY_HOLD_DISTANCE_M) /
+        (MAIN_ARC_ENTRY_RAMP_END_M - MAIN_ARC_ENTRY_HOLD_DISTANCE_M);
+    return clampf(zone_speed_mps,
+                  0.0f,
+                  lerpf(entry_speed_mps, zone_speed_mps, clampf(t, 0.0f, 1.0f)));
+}
+
 static float select_arc_turn_scale(const arc_profile_t *profile, float phase_distance_m)
 {
     if (phase_distance_m < profile->front_end_m) {
@@ -491,6 +527,28 @@ static float select_arc_turn_scale(const arc_profile_t *profile, float phase_dis
         return profile->turn_scale_mid;
     }
     return profile->turn_scale_rear;
+}
+
+static float apply_arc_entry_w_limit(float w_radps, float phase_distance_m)
+{
+    float limit_radps;
+    float t;
+
+    if (phase_distance_m >= MAIN_ARC_ENTRY_RAMP_END_M) {
+        return clampf(w_radps, -MAIN_ARC_W_LIMIT_RADPS, MAIN_ARC_W_LIMIT_RADPS);
+    }
+
+    if (phase_distance_m <= MAIN_ARC_ENTRY_HOLD_DISTANCE_M) {
+        limit_radps = MAIN_ARC_ENTRY_W_LIMIT_RADPS;
+    } else {
+        t = (phase_distance_m - MAIN_ARC_ENTRY_HOLD_DISTANCE_M) /
+            (MAIN_ARC_ENTRY_RAMP_END_M - MAIN_ARC_ENTRY_HOLD_DISTANCE_M);
+        limit_radps = lerpf(MAIN_ARC_ENTRY_W_LIMIT_RADPS,
+                            MAIN_ARC_W_LIMIT_RADPS,
+                            clampf(t, 0.0f, 1.0f));
+    }
+
+    return clampf(w_radps, -limit_radps, limit_radps);
 }
 
 static float get_arc_inner_bias_w(const arc_profile_t *profile, float phase_distance_m)
@@ -742,6 +800,9 @@ static float run_arc_track(main_task_ctx_t *ctx,
     float zone_speed_mps;
 
     zone_speed_mps = select_arc_zone_speed(phase->arc_profile, ctx->phase_distance_m);
+    zone_speed_mps = apply_arc_entry_speed_limit(phase,
+                                                 zone_speed_mps,
+                                                 ctx->phase_distance_m);
 
     if (feedback->line_detected != 0u) {
         float line_error = (float)feedback->line_position;
@@ -762,18 +823,21 @@ static float run_arc_track(main_task_ctx_t *ctx,
         control_w *= select_edge_boost(line_error) * turn_scale;
         control_w += get_arc_inner_bias_w(phase->arc_profile, ctx->phase_distance_m);
         control_w = apply_line_steer_sign(control_w);
-        command->w_radps = clampf(control_w,
-                                  -MAIN_ARC_W_LIMIT_RADPS,
-                                  MAIN_ARC_W_LIMIT_RADPS);
+        command->w_radps = apply_arc_entry_w_limit(control_w,
+                                                   ctx->phase_distance_m);
         return select_arc_speed_limit(zone_speed_mps, line_error);
     }
 
     LineController_Reset(line_controller);
     if ((ctx->arc_has_seen_line == 0u) || (ctx->arc_last_error <= 0.0f)) {
-        command->w_radps = apply_line_steer_sign(MAIN_ARC_SEARCH_W_RADPS);
+        command->w_radps = apply_arc_entry_w_limit(
+            apply_line_steer_sign(MAIN_ARC_SEARCH_W_RADPS),
+            ctx->phase_distance_m);
         ctx->state = APP_MAIN_STATE_ARC_LOST_LEFT;
     } else {
-        command->w_radps = apply_line_steer_sign(-MAIN_ARC_SEARCH_W_RADPS);
+        command->w_radps = apply_arc_entry_w_limit(
+            apply_line_steer_sign(-MAIN_ARC_SEARCH_W_RADPS),
+            ctx->phase_distance_m);
         ctx->state = APP_MAIN_STATE_ARC_LOST_RIGHT;
     }
 
