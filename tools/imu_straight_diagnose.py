@@ -220,6 +220,10 @@ def parse_status_line(line: str, host_time_s: float, elapsed_s: float) -> dict[s
         selected, _, active = fields["q"].partition("/")
         row["selected_challenge"] = selected
         row["active_challenge"] = active
+    if "hold" in fields:
+        row["hold_heading_deg"] = to_float(fields["hold"], 0.0)
+    if "err" in fields:
+        row["heading_error_deg"] = to_float(fields["err"], 0.0)
     if "lap" in fields:
         lap_index, _, lap_total = fields["lap"].partition("/")
         row["lap_index"] = to_int(lap_index, 0)
@@ -455,21 +459,28 @@ def make_summary(args: argparse.Namespace, rows: list[dict[str, Any]]) -> dict[s
     if summary["max_abs_heading_error_deg"] > 4.0 and summary["mean_abs_w_radps"] < 0.05:
         diagnostics.append("Heading error exists but commanded w is very small; yaw PID gain may be too weak or disabled.")
 
-    err_w = summary["corr_heading_error_to_w"]
-    if err_w is not None and err_w < 0.2:
-        diagnostics.append("heading_error and commanded w are weakly/negatively correlated; yaw PID sign or publishing path is suspect.")
+    low_heading_excitation = (
+        summary["max_abs_heading_error_deg"] < 2.5 and
+        summary["mean_abs_w_radps"] < 0.10
+    )
+    if low_heading_excitation:
+        diagnostics.append("Heading error and steering command are both small; correlation-based sign checks are low-confidence.")
+    else:
+        err_w = summary["corr_heading_error_to_w"]
+        if err_w is not None and err_w < 0.2:
+            diagnostics.append("heading_error and commanded w are weakly/negatively correlated; yaw PID sign or publishing path is suspect.")
 
-    w_target = summary["corr_w_to_target_speed_diff"]
-    if w_target is not None and w_target < 0.7:
-        diagnostics.append("commanded w does not map cleanly to wheel target speed difference; v/w to wheel mapping or left/right mapping is suspect.")
+        w_target = summary["corr_w_to_target_speed_diff"]
+        if w_target is not None and w_target < 0.7:
+            diagnostics.append("commanded w does not map cleanly to wheel target speed difference; v/w to wheel mapping or left/right mapping is suspect.")
 
-    target_meas = summary["corr_target_diff_to_measured_diff"]
-    if target_meas is not None and target_meas < 0.4:
-        diagnostics.append("wheel measured speed difference does not follow target difference; speed loop, motor direction, or wheel response is suspect.")
+        target_meas = summary["corr_target_diff_to_measured_diff"]
+        if target_meas is not None and target_meas < 0.4:
+            diagnostics.append("wheel measured speed difference does not follow target difference; speed loop, motor direction, or wheel response is suspect.")
 
-    w_gz = summary["corr_w_to_gyro_z"]
-    if w_gz is not None and w_gz < -0.3:
-        diagnostics.append("positive commanded w tends to produce negative gyro_z; IMU yaw/gyro sign may oppose chassis turn sign.")
+        w_gz = summary["corr_w_to_gyro_z"]
+        if w_gz is not None and w_gz < -0.3:
+            diagnostics.append("positive commanded w tends to produce negative gyro_z; IMU yaw/gyro sign may oppose chassis turn sign.")
 
     if summary["mean_abs_heading_error_deg"] < 2.0 and args.note:
         diagnostics.append("If physical drift is visible while heading error stays small, yaw-only control cannot observe lateral translation; use line/position cue or fix mechanics.")

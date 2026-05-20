@@ -19,6 +19,11 @@
 #define MAIN_ALIGN_STABLE_MS              400U
 #define MAIN_GAP_CRUISE_SPEED_MPS         0.46f
 #define MAIN_GAP_END_SPEED_MPS            0.28f
+#define MAIN_GAP_D_EXIT_SPEED_MPS         0.18f
+#define MAIN_GAP_D_CENTER_CONFIRM_MS      60U
+#define MAIN_GAP_D_CENTER_POS_MAX         10
+#define MAIN_GAP_D_CENTER_W_SCALE         0.35f
+#define MAIN_GAP_D_CENTER_W_LIMIT_RADPS   0.55f
 #define MAIN_GAP_W_LIMIT_RADPS            1.70f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M 0.50f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS  0.25f
@@ -32,15 +37,18 @@
 #define MAIN_BASIC_LINE_W_LIMIT_RADPS          2.20f
 // Positive line controller output currently steers opposite to the installed sensor/chassis orientation.
 #define MAIN_LINE_STEER_SIGN                   (-1.0f)
-#define MAIN_ARC_W_LIMIT_RADPS            2.40f
+// Positive chassis w produces negative IMU yaw on the current hardware.
+#define MAIN_HEADING_STEER_SIGN                (-1.0f)
+#define MAIN_ARC_W_LIMIT_RADPS            1.80f
 #define MAIN_ARC_SEARCH_SPEED_MPS         0.12f
 #define MAIN_ARC_SEARCH_W_RADPS           1.10f
 #define MAIN_ARC_FAST_ERROR_THRESHOLD     8
 #define MAIN_ARC_MEDIUM_ERROR_THRESHOLD   18
 #define MAIN_ARC_MAX_ERROR_THRESHOLD      30
 #define MAIN_ARC_EDGE_BOOST_THRESHOLD     18
-#define MAIN_ARC_EDGE_BOOST_MAX_SCALE     1.35f
+#define MAIN_ARC_EDGE_BOOST_MAX_SCALE     1.15f
 #define MAIN_ARC_EXIT_HEADING_TOL_DEG     8.0f
+#define MAIN_ARC_EXIT_OVERRUN_TOL_DEG     14.0f
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
 #define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
 #define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.18f
@@ -117,11 +125,11 @@ static const arc_profile_t k_arc_profile_bc = {
     .speed_mid_mps = 0.42f,
     .speed_rear_mps = 0.24f,
     .turn_scale_front = 1.00f,
-    .turn_scale_mid = 1.16f,
-    .turn_scale_rear = 1.38f,
+    .turn_scale_mid = 1.08f,
+    .turn_scale_rear = 1.20f,
     .inner_bias_start_m = 0.70f,
     .inner_bias_full_m = 0.98f,
-    .inner_bias_w_radps = 0.38f,
+    .inner_bias_w_radps = 0.30f,
     .lost_confirm_ms = 70u,
     .inner_bias_sign = -1,
 };
@@ -153,11 +161,11 @@ static const arc_profile_t k_arc_profile_da = {
     .speed_mid_mps = 0.44f,
     .speed_rear_mps = 0.27f,
     .turn_scale_front = 1.00f,
-    .turn_scale_mid = 1.10f,
-    .turn_scale_rear = 1.24f,
+    .turn_scale_mid = 1.05f,
+    .turn_scale_rear = 1.14f,
     .inner_bias_start_m = 0.76f,
     .inner_bias_full_m = 1.04f,
-    .inner_bias_w_radps = 0.26f,
+    .inner_bias_w_radps = 0.22f,
     .lost_confirm_ms = 60u,
     .inner_bias_sign = 1,
 };
@@ -214,10 +222,20 @@ static float absf(float value)
     return value;
 }
 
+static int16_t absi16(int16_t value)
+{
+    if (value < 0) {
+        return (int16_t)-value;
+    }
+    return value;
+}
+
 static float lerpf(float start, float end, float t)
 {
     return start + ((end - start) * t);
 }
+
+static float apply_line_steer_sign(float w_radps);
 
 static float wrap_angle_deg(float angle_deg)
 {
@@ -380,6 +398,57 @@ static float select_gap_speed(const phase_descriptor_t *phase, float phase_dista
     return MAIN_GAP_CRUISE_SPEED_MPS;
 }
 
+static uint8_t phase_requires_centered_d_exit(const phase_descriptor_t *phase)
+{
+    return ((phase != NULL) &&
+            (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) &&
+            (phase->complete_event == APP_EVENT_PASS_D))
+               ? 1u
+               : 0u;
+}
+
+static uint8_t feedback_is_centered_for_d_exit(const chassis_feedback_t *feedback)
+{
+    return ((feedback != NULL) &&
+            (feedback->line_detected != 0u) &&
+            (absi16(feedback->line_position) <= MAIN_GAP_D_CENTER_POS_MAX))
+               ? 1u
+               : 0u;
+}
+
+static void apply_gap_d_exit_centering(const phase_descriptor_t *phase,
+                                       line_controller_t *line_controller,
+                                       const chassis_feedback_t *feedback,
+                                       chassis_command_t *command)
+{
+    float control_w;
+
+    if ((phase_requires_centered_d_exit(phase) == 0u) ||
+        (feedback == NULL) ||
+        (line_controller == NULL) ||
+        (command == NULL)) {
+        return;
+    }
+
+    if (feedback->line_detected == 0u) {
+        LineController_Reset(line_controller);
+        return;
+    }
+
+    control_w = LineController_Update(line_controller,
+                                      (float)feedback->line_position,
+                                      feedback->line_bits,
+                                      feedback->line_detected,
+                                      MAIN_DT_S);
+    control_w = apply_line_steer_sign(control_w * MAIN_GAP_D_CENTER_W_SCALE);
+    control_w = clampf(control_w,
+                       -MAIN_GAP_D_CENTER_W_LIMIT_RADPS,
+                       MAIN_GAP_D_CENTER_W_LIMIT_RADPS);
+    command->w_radps = clampf(command->w_radps + control_w,
+                              -MAIN_GAP_W_LIMIT_RADPS,
+                              MAIN_GAP_W_LIMIT_RADPS);
+}
+
 static float select_basic_straight_speed(float target_speed_mps, float remaining_m)
 {
     target_speed_mps = clampf(target_speed_mps,
@@ -441,6 +510,11 @@ static float get_arc_inner_bias_w(const arc_profile_t *profile, float phase_dist
 static float apply_line_steer_sign(float w_radps)
 {
     return MAIN_LINE_STEER_SIGN * w_radps;
+}
+
+static float apply_heading_steer_sign(float w_radps)
+{
+    return MAIN_HEADING_STEER_SIGN * w_radps;
 }
 
 static float get_field_heading_deg(const main_task_ctx_t *ctx,
@@ -652,7 +726,7 @@ static float run_gap_traverse(main_task_ctx_t *ctx,
         YawController_Reset(yaw_controller);
     }
 
-    command->w_radps = clampf(heading_term,
+    command->w_radps = clampf(apply_heading_steer_sign(heading_term),
                               -MAIN_GAP_W_LIMIT_RADPS,
                               MAIN_GAP_W_LIMIT_RADPS);
     ctx->state = APP_MAIN_STATE_GAP;
@@ -741,8 +815,9 @@ static uint8_t run_arc_exit_heading_align(main_task_ctx_t *ctx,
     abs_error = absf(ctx->heading_error_deg);
 
     if ((abs_error <= MAIN_ARC_EXIT_HEADING_TOL_DEG) ||
-        (ctx->phase_distance_m >=
-            (ctx->target_distance_m + MAIN_ARC_EXIT_MAX_OVERRUN_M))) {
+        ((ctx->phase_distance_m >=
+            (ctx->target_distance_m + MAIN_ARC_EXIT_MAX_OVERRUN_M)) &&
+         (abs_error <= MAIN_ARC_EXIT_OVERRUN_TOL_DEG))) {
         return 1u;
     }
 
@@ -751,7 +826,7 @@ static uint8_t run_arc_exit_heading_align(main_task_ctx_t *ctx,
                                         feedback->yaw_deg,
                                         feedback->gyro_z,
                                         MAIN_DT_S);
-    command->w_radps = clampf(heading_term,
+    command->w_radps = clampf(apply_heading_steer_sign(heading_term),
                               -MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS,
                               MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS);
     ctx->target_speed_mps = MAIN_ARC_EXIT_ALIGN_SPEED_MPS;
@@ -884,7 +959,7 @@ static void run_basic_straight(main_task_ctx_t *ctx,
 
     command->stop = 0u;
     command->enable_closed_loop = 1u;
-    command->w_radps = clampf(heading_term,
+    command->w_radps = clampf(apply_heading_steer_sign(heading_term),
                               -MAIN_GAP_W_LIMIT_RADPS,
                               MAIN_GAP_W_LIMIT_RADPS);
     ctx->target_speed_mps = select_basic_straight_speed(ctx->cruise_speed_mps, remaining_m);
@@ -1110,6 +1185,13 @@ void main_task(void *arg)
 
         case APP_PHASE_ACTION_GAP_TRAVERSE:
             target_v_mps = run_gap_traverse(&ctx, phase, yaw_controller, &feedback, &command);
+            if ((phase_requires_centered_d_exit(phase) != 0u) &&
+                (ctx.phase_distance_m >= phase->min_exit_m)) {
+                target_v_mps = clampf(target_v_mps, 0.0f, MAIN_GAP_D_EXIT_SPEED_MPS);
+                apply_gap_d_exit_centering(phase, line_controller, &feedback, &command);
+            } else {
+                LineController_Reset(line_controller);
+            }
             ctx.target_speed_mps = target_v_mps;
 
             if (feedback.line_detected == 0u) {
@@ -1117,12 +1199,27 @@ void main_task(void *arg)
                 ctx.line_seen_ms = 0u;
             } else if ((ctx.gap_left_line != 0u) &&
                        (ctx.phase_distance_m >= phase->min_exit_m)) {
-                ctx.line_seen_ms = (uint16_t)(ctx.line_seen_ms + MAIN_TASK_PERIOD_MS);
+                if ((phase_requires_centered_d_exit(phase) == 0u) ||
+                    (feedback_is_centered_for_d_exit(&feedback) != 0u)) {
+                    uint16_t confirm_ms = (phase_requires_centered_d_exit(phase) != 0u)
+                                              ? MAIN_GAP_D_CENTER_CONFIRM_MS
+                                              : MAIN_REACQUIRE_CONFIRM_MS;
+                    ctx.line_seen_ms =
+                        (uint16_t)(ctx.line_seen_ms + MAIN_TASK_PERIOD_MS);
+                    if (ctx.line_seen_ms > confirm_ms) {
+                        ctx.line_seen_ms = confirm_ms;
+                    }
+                } else {
+                    ctx.line_seen_ms = 0u;
+                }
             } else {
                 ctx.line_seen_ms = 0u;
             }
 
-            if (ctx.line_seen_ms >= MAIN_REACQUIRE_CONFIRM_MS) {
+            if (ctx.line_seen_ms >=
+                ((phase_requires_centered_d_exit(phase) != 0u)
+                     ? MAIN_GAP_D_CENTER_CONFIRM_MS
+                     : MAIN_REACQUIRE_CONFIRM_MS)) {
                 uint8_t next_sequence_index;
                 uint8_t next_lap_index;
                 const phase_descriptor_t *next_phase;

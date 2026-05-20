@@ -8,6 +8,9 @@
 typedef struct {
     pid_controller_t pid;
     float            rate_ff_gain;
+    float            last_yaw_deg;
+    float            continuous_yaw_deg;
+    unsigned         measurement_ready : 1;
 } yaw_controller_t;
 
 void YawController_Init(yaw_controller_t *controller,
