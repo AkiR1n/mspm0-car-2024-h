@@ -17,9 +17,9 @@
 #define MAIN_M_PER_COUNT                  ((2.0f * MAIN_PI * MAIN_WHEEL_RADIUS_M) / MAIN_ENCODER_PPR)
 #define MAIN_ALIGN_SPEED_THRESHOLD_MPS    0.03f
 #define MAIN_ALIGN_STABLE_MS              400U
-#define MAIN_GAP_CRUISE_SPEED_MPS         0.46f
-#define MAIN_GAP_END_SPEED_MPS            0.28f
-#define MAIN_GAP_D_EXIT_SPEED_MPS         0.18f
+#define MAIN_GAP_CRUISE_SPEED_MPS         0.68f
+#define MAIN_GAP_END_SPEED_MPS            0.40f
+#define MAIN_GAP_D_EXIT_SPEED_MPS         0.30f
 #define MAIN_GAP_D_CENTER_CONFIRM_MS      60U
 #define MAIN_GAP_D_CENTER_POS_MAX         10
 #define MAIN_GAP_D_CENTER_W_SCALE         0.35f
@@ -59,8 +59,8 @@
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
 #define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
 #define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.18f
-#define MAIN_FINAL_A_ALIGN_START_M        0.92f
-#define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.08f
+#define MAIN_FINAL_A_ALIGN_START_M        1.15f
+#define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.18f
 #define MAIN_FINAL_A_ALIGN_W_LIMIT_RADPS  0.35f
 #define MAIN_FINAL_A_EXIT_MIN_DISTANCE_M  1.16f
 #define MAIN_FINAL_A_EXIT_MAX_DISTANCE_M  1.34f
@@ -138,9 +138,9 @@ static const arc_profile_t k_arc_profile_bc = {
     .min_exit_m = 1.08f,
     .front_end_m = 0.32f,
     .rear_start_m = 0.86f,
-    .speed_front_mps = 0.56f,
-    .speed_mid_mps = 0.42f,
-    .speed_rear_mps = 0.24f,
+    .speed_front_mps = 0.74f,
+    .speed_mid_mps = 0.60f,
+    .speed_rear_mps = 0.39f,
     .turn_scale_front = 1.00f,
     .turn_scale_mid = 1.08f,
     .turn_scale_rear = 1.20f,
@@ -156,9 +156,9 @@ static const arc_profile_t k_arc_profile_cb = {
     .min_exit_m = 1.07f,
     .front_end_m = 0.28f,
     .rear_start_m = 0.88f,
-    .speed_front_mps = 0.52f,
-    .speed_mid_mps = 0.42f,
-    .speed_rear_mps = 0.26f,
+    .speed_front_mps = 0.70f,
+    .speed_mid_mps = 0.60f,
+    .speed_rear_mps = 0.40f,
     .turn_scale_front = 1.05f,
     .turn_scale_mid = 1.18f,
     .turn_scale_rear = 1.30f,
@@ -174,9 +174,9 @@ static const arc_profile_t k_arc_profile_da = {
     .min_exit_m = 1.05f,
     .front_end_m = 0.30f,
     .rear_start_m = 0.90f,
-    .speed_front_mps = 0.54f,
-    .speed_mid_mps = 0.44f,
-    .speed_rear_mps = 0.27f,
+    .speed_front_mps = 0.72f,
+    .speed_mid_mps = 0.62f,
+    .speed_rear_mps = 0.41f,
     .turn_scale_front = 1.00f,
     .turn_scale_mid = 1.05f,
     .turn_scale_rear = 1.14f,
