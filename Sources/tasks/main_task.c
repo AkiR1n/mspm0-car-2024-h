@@ -17,9 +17,9 @@
 #define MAIN_M_PER_COUNT                  ((2.0f * MAIN_PI * MAIN_WHEEL_RADIUS_M) / MAIN_ENCODER_PPR)
 #define MAIN_ALIGN_SPEED_THRESHOLD_MPS    0.03f
 #define MAIN_ALIGN_STABLE_MS              400U
-#define MAIN_GAP_CRUISE_SPEED_MPS         0.46f
-#define MAIN_GAP_END_SPEED_MPS            0.28f
-#define MAIN_GAP_D_EXIT_SPEED_MPS         0.18f
+#define MAIN_GAP_CRUISE_SPEED_MPS         0.68f
+#define MAIN_GAP_END_SPEED_MPS            0.40f
+#define MAIN_GAP_D_EXIT_SPEED_MPS         0.30f
 #define MAIN_GAP_D_CENTER_CONFIRM_MS      60U
 #define MAIN_GAP_D_CENTER_POS_MAX         10
 #define MAIN_GAP_D_CENTER_W_SCALE         0.35f
@@ -27,6 +27,8 @@
 #define MAIN_GAP_ARC_FALLBACK_MARGIN_M    0.08f
 #define MAIN_GAP_ARC_FALLBACK_SPEED_MPS   0.20f
 #define MAIN_GAP_W_LIMIT_RADPS            1.70f
+#define MAIN_ARC_RADIUS_M                 0.40f
+#define MAIN_RAD_TO_DEG                   (180.0f / MAIN_PI)
 #define MAIN_BASIC_STRAIGHT_DEFAULT_DISTANCE_M 0.50f
 #define MAIN_BASIC_STRAIGHT_DEFAULT_SPEED_MPS  0.25f
 #define MAIN_BASIC_STRAIGHT_END_SPEED_MPS      0.10f
@@ -59,8 +61,17 @@
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
 #define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
 #define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.18f
-#define MAIN_FINAL_A_ALIGN_START_M        0.92f
-#define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.08f
+#define MAIN_FIELD_EST_MIN_DISTANCE_M     0.28f
+#define MAIN_FIELD_EST_MAX_DISTANCE_M     0.72f
+#define MAIN_FIELD_EST_MAX_LINE_POS       15
+#define MAIN_FIELD_EST_MAX_GYRO_DPS       115.0f
+#define MAIN_FIELD_EST_MAX_SAMPLE_ERROR_DEG 35.0f
+#define MAIN_FIELD_EST_MAX_SAMPLE_SPREAD_DEG 28.0f
+#define MAIN_FIELD_EST_MIN_SAMPLES        3u
+#define MAIN_FIELD_EST_GAIN               0.85f
+#define MAIN_FIELD_EST_MAX_CORRECTION_DEG 24.0f
+#define MAIN_FINAL_A_ALIGN_START_M        1.15f
+#define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.18f
 #define MAIN_FINAL_A_ALIGN_W_LIMIT_RADPS  0.35f
 #define MAIN_FINAL_A_EXIT_MIN_DISTANCE_M  1.16f
 #define MAIN_FINAL_A_EXIT_MAX_DISTANCE_M  1.34f
@@ -125,10 +136,15 @@ typedef struct {
     float            arc_entry_yaw_deg;
     float            final_a_comp_start_distance_m;
     float            field_yaw_offset_deg;
+    float            field_est_sin_sum;
+    float            field_est_cos_sum;
+    float            field_est_last_deg;
     float            geometry_heading_deg;
     float            hold_heading_deg;
     float            heading_error_deg;
     float            target_speed_mps;
+    uint8_t          field_est_sample_count;
+    uint8_t          field_est_applied;
     uint8_t          final_a_compensating;
     app_main_state_t state;
 } main_task_ctx_t;
@@ -138,9 +154,9 @@ static const arc_profile_t k_arc_profile_bc = {
     .min_exit_m = 1.08f,
     .front_end_m = 0.32f,
     .rear_start_m = 0.86f,
-    .speed_front_mps = 0.56f,
-    .speed_mid_mps = 0.42f,
-    .speed_rear_mps = 0.24f,
+    .speed_front_mps = 0.74f,
+    .speed_mid_mps = 0.60f,
+    .speed_rear_mps = 0.39f,
     .turn_scale_front = 1.00f,
     .turn_scale_mid = 1.08f,
     .turn_scale_rear = 1.20f,
@@ -156,9 +172,9 @@ static const arc_profile_t k_arc_profile_cb = {
     .min_exit_m = 1.07f,
     .front_end_m = 0.28f,
     .rear_start_m = 0.88f,
-    .speed_front_mps = 0.52f,
-    .speed_mid_mps = 0.42f,
-    .speed_rear_mps = 0.26f,
+    .speed_front_mps = 0.70f,
+    .speed_mid_mps = 0.60f,
+    .speed_rear_mps = 0.40f,
     .turn_scale_front = 1.05f,
     .turn_scale_mid = 1.18f,
     .turn_scale_rear = 1.30f,
@@ -174,9 +190,9 @@ static const arc_profile_t k_arc_profile_da = {
     .min_exit_m = 1.05f,
     .front_end_m = 0.30f,
     .rear_start_m = 0.90f,
-    .speed_front_mps = 0.54f,
-    .speed_mid_mps = 0.44f,
-    .speed_rear_mps = 0.27f,
+    .speed_front_mps = 0.72f,
+    .speed_mid_mps = 0.62f,
+    .speed_rear_mps = 0.41f,
     .turn_scale_front = 1.00f,
     .turn_scale_mid = 1.05f,
     .turn_scale_rear = 1.14f,
@@ -263,6 +279,11 @@ static float wrap_angle_deg(float angle_deg)
         angle_deg += 360.0f;
     }
     return angle_deg;
+}
+
+static float circular_mean_deg(float sin_sum, float cos_sum)
+{
+    return wrap_angle_deg(atan2f(sin_sum, cos_sum) * MAIN_RAD_TO_DEG);
 }
 
 static const phase_descriptor_t *get_sequence(app_challenge_t challenge, uint8_t *count)
@@ -727,6 +748,126 @@ static float get_field_heading_deg(const main_task_ctx_t *ctx,
     return wrap_angle_deg(ctx->field_yaw_offset_deg + phase->geometry_heading_deg);
 }
 
+static void reset_field_heading_estimator(main_task_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+
+    ctx->field_est_sin_sum = 0.0f;
+    ctx->field_est_cos_sum = 0.0f;
+    ctx->field_est_last_deg = 0.0f;
+    ctx->field_est_sample_count = 0u;
+    ctx->field_est_applied = 0u;
+}
+
+static uint8_t phase_supports_field_heading_estimate(const phase_descriptor_t *phase)
+{
+    return ((phase != NULL) &&
+            (phase->phase == APP_CHALLENGE_PHASE_ARC_BC))
+               ? 1u
+               : 0u;
+}
+
+static uint8_t get_arc_field_heading_sample_deg(const phase_descriptor_t *phase,
+                                                float phase_distance_m,
+                                                float yaw_deg,
+                                                float *sample_deg)
+{
+    float progress_deg;
+
+    if ((phase == NULL) || (sample_deg == NULL)) {
+        return 0u;
+    }
+
+    progress_deg = (phase_distance_m / MAIN_ARC_RADIUS_M) * MAIN_RAD_TO_DEG;
+
+    switch (phase->phase) {
+    case APP_CHALLENGE_PHASE_ARC_BC:
+        *sample_deg = wrap_angle_deg(yaw_deg - progress_deg);
+        return 1u;
+    default:
+        break;
+    }
+
+    return 0u;
+}
+
+static void update_field_heading_estimator(main_task_ctx_t *ctx,
+                                           const phase_descriptor_t *phase,
+                                           const chassis_feedback_t *feedback)
+{
+    float sample_deg;
+    float current_mean_deg;
+    float spread_deg;
+
+    if ((ctx == NULL) || (feedback == NULL) ||
+        (phase_supports_field_heading_estimate(phase) == 0u) ||
+        (feedback->imu_ready == 0u) ||
+        (feedback->imu_stable == 0u) ||
+        (feedback->line_detected == 0u) ||
+        (absi16(feedback->line_position) > MAIN_FIELD_EST_MAX_LINE_POS) ||
+        (absf(feedback->gyro_z) > MAIN_FIELD_EST_MAX_GYRO_DPS) ||
+        (ctx->phase_distance_m < MAIN_FIELD_EST_MIN_DISTANCE_M) ||
+        (ctx->phase_distance_m > MAIN_FIELD_EST_MAX_DISTANCE_M)) {
+        return;
+    }
+
+    if (get_arc_field_heading_sample_deg(phase,
+                                         ctx->phase_distance_m,
+                                         feedback->yaw_deg,
+                                         &sample_deg) == 0u) {
+        return;
+    }
+
+    if (absf(wrap_angle_deg(sample_deg - ctx->field_yaw_offset_deg)) >
+        MAIN_FIELD_EST_MAX_SAMPLE_ERROR_DEG) {
+        return;
+    }
+
+    if (ctx->field_est_sample_count != 0u) {
+        current_mean_deg =
+            circular_mean_deg(ctx->field_est_sin_sum, ctx->field_est_cos_sum);
+        spread_deg = absf(wrap_angle_deg(sample_deg - current_mean_deg));
+        if (spread_deg > MAIN_FIELD_EST_MAX_SAMPLE_SPREAD_DEG) {
+            return;
+        }
+    }
+
+    ctx->field_est_sin_sum += sinf(sample_deg / MAIN_RAD_TO_DEG);
+    ctx->field_est_cos_sum += cosf(sample_deg / MAIN_RAD_TO_DEG);
+    ctx->field_est_last_deg = sample_deg;
+    if (ctx->field_est_sample_count < 255u) {
+        ctx->field_est_sample_count = (uint8_t)(ctx->field_est_sample_count + 1u);
+    }
+}
+
+static uint8_t apply_field_heading_estimate(main_task_ctx_t *ctx,
+                                            const phase_descriptor_t *phase)
+{
+    float estimated_field_deg;
+    float correction_deg;
+
+    if ((ctx == NULL) ||
+        (phase_supports_field_heading_estimate(phase) == 0u) ||
+        (ctx->field_est_applied != 0u) ||
+        (ctx->field_est_sample_count < MAIN_FIELD_EST_MIN_SAMPLES)) {
+        return 0u;
+    }
+
+    estimated_field_deg =
+        circular_mean_deg(ctx->field_est_sin_sum, ctx->field_est_cos_sum);
+    correction_deg = wrap_angle_deg(estimated_field_deg - ctx->field_yaw_offset_deg);
+    correction_deg = clampf(correction_deg,
+                            -MAIN_FIELD_EST_MAX_CORRECTION_DEG,
+                            MAIN_FIELD_EST_MAX_CORRECTION_DEG);
+    ctx->field_yaw_offset_deg =
+        wrap_angle_deg(ctx->field_yaw_offset_deg +
+                       (correction_deg * MAIN_FIELD_EST_GAIN));
+    ctx->field_est_applied = 1u;
+    return 1u;
+}
+
 static float get_phase_target_distance_m(const phase_descriptor_t *phase)
 {
     if (phase == NULL) {
@@ -827,6 +968,7 @@ static void enter_phase(main_task_ctx_t *ctx,
     ctx->arc_entry_yaw_deg = feedback->yaw_deg;
     ctx->final_a_comp_start_distance_m = 0.0f;
     ctx->final_a_compensating = 0u;
+    reset_field_heading_estimator(ctx);
     ctx->geometry_heading_deg = phase->geometry_heading_deg;
     if (phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) {
         ctx->hold_heading_deg = get_field_heading_deg(ctx, phase);
@@ -960,6 +1102,7 @@ static float run_arc_track(main_task_ctx_t *ctx,
         ctx->line_missing_ms = 0u;
         ctx->heading_error_deg = 0.0f;
         ctx->state = APP_MAIN_STATE_ARC_TRACK;
+        update_field_heading_estimator(ctx, phase, feedback);
 
         control_w = LineController_Update(line_controller,
                                           line_error,
@@ -1594,6 +1737,8 @@ void main_task(void *arg)
                     vTaskDelayUntil(&next, pdMS_TO_TICKS(MAIN_TASK_PERIOD_MS));
                     continue;
                 }
+
+                (void)apply_field_heading_estimate(&ctx, phase);
 
                 if (next_phase->action == APP_PHASE_ACTION_STOP_AND_SIGNAL) {
                     if ((phase_is_final_a_arc(phase, next_phase) != 0u) &&

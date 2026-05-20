@@ -1,0 +1,15 @@
+name,section,unit,old_value,stage1_value,stage2_value,current_value,rollback_note
+MAIN_GAP_CRUISE_SPEED_MPS,gap_straight,mps,0.46,0.52,0.60,0.68,straight cruise speed
+MAIN_GAP_END_SPEED_MPS,gap_straight,mps,0.28,0.31,0.36,0.40,straight end approach speed
+MAIN_GAP_D_EXIT_SPEED_MPS,gap_cd,mps,0.18,0.22,0.26,0.30,C-D end centering speed before D
+MAIN_FINAL_A_ALIGN_START_M,final_a,m,0.92,1.08,1.12,1.15,distance where final A low-speed cap begins
+MAIN_FINAL_A_ALIGN_SPEED_MPS,final_a,mps,0.08,0.12,0.15,0.18,final A align and compensation speed
+k_arc_profile_bc.speed_front_mps,arc_bc,mps,0.56,0.60,0.68,0.74,B-C front-zone speed
+k_arc_profile_bc.speed_mid_mps,arc_bc,mps,0.42,0.46,0.54,0.60,B-C middle-zone speed
+k_arc_profile_bc.speed_rear_mps,arc_bc,mps,0.24,0.28,0.34,0.39,B-C rear-zone speed
+k_arc_profile_cb.speed_front_mps,arc_cb,mps,0.52,0.56,0.64,0.70,C-B front-zone speed
+k_arc_profile_cb.speed_mid_mps,arc_cb,mps,0.42,0.46,0.54,0.60,C-B middle-zone speed
+k_arc_profile_cb.speed_rear_mps,arc_cb,mps,0.26,0.30,0.35,0.40,C-B rear-zone speed
+k_arc_profile_da.speed_front_mps,arc_da,mps,0.54,0.58,0.66,0.72,D-A front-zone speed
+k_arc_profile_da.speed_mid_mps,arc_da,mps,0.44,0.48,0.56,0.62,D-A middle-zone speed
+k_arc_profile_da.speed_rear_mps,arc_da,mps,0.27,0.31,0.36,0.41,D-A rear-zone speed
