@@ -61,8 +61,10 @@
 #define MAIN_ARC_EXIT_OVERRUN_TOL_DEG     14.0f
 #define MAIN_ARC_EXIT_ALIGN_SPEED_MPS     0.10f
 #define MAIN_ARC_EXIT_ALIGN_W_LIMIT_RADPS 1.25f
-#define MAIN_ARC_CB_EXIT_ALIGN_SPEED_MPS  0.14f
-#define MAIN_ARC_CB_EXIT_ALIGN_W_LIMIT_RADPS 1.65f
+#define MAIN_ARC_CB_EXIT_ALIGN_SPEED_MPS  0.24f
+#define MAIN_ARC_CB_EXIT_ALIGN_W_LIMIT_RADPS 2.53f
+#define MAIN_ARC_Q4_A_EXIT_ALIGN_SPEED_MPS 0.24f
+#define MAIN_ARC_Q4_A_EXIT_ALIGN_W_LIMIT_RADPS 2.53f
 #define MAIN_ARC_EXIT_MAX_OVERRUN_M       0.12f
 #define MAIN_FINAL_A_ALIGN_START_M        1.15f
 #define MAIN_FINAL_A_ALIGN_SPEED_MPS      0.18f
@@ -70,7 +72,7 @@
 #define MAIN_FINAL_A_EXIT_MIN_DISTANCE_M  1.16f
 #define MAIN_FINAL_A_EXIT_MAX_DISTANCE_M  1.34f
 #define MAIN_FINAL_A_EXIT_YAW_MIN_DEG     155.0f
-#define MAIN_FINAL_A_COMPENSATE_M         0.055f
+#define MAIN_FINAL_A_COMPENSATE_M         0.000f
 #define MAIN_REACQUIRE_CONFIRM_MS         40U
 #define MAIN_V_ACCEL_MPS2                 2.8f
 #define MAIN_V_DECEL_MPS2                 2.2f
@@ -78,9 +80,10 @@
 #define MAIN_FIELD_TO_IMU_YAW_SIGN        (-1.0f)
 #define MAIN_HEADING_AB_DEG               0.0f
 #define MAIN_HEADING_CD_DEG               180.0f
-#define MAIN_HEADING_AC_DEG               (-38.659809f)
+#define MAIN_HEADING_AC_INNER_BIAS_DEG    (1.0f)
+#define MAIN_HEADING_AC_DEG               (-38.659809f + MAIN_HEADING_AC_INNER_BIAS_DEG)
 // Inward bias on B->D after WT101 yaw sign conversion.
-#define MAIN_HEADING_BD_INNER_BIAS_DEG    (-5.0f)
+#define MAIN_HEADING_BD_INNER_BIAS_DEG    (0.0f)
 #define MAIN_HEADING_BD_DEG               (-141.340191f + MAIN_HEADING_BD_INNER_BIAS_DEG)
 
 typedef struct {
@@ -724,16 +727,30 @@ static float apply_arc_entry_w_limit(const arc_profile_t *profile,
 }
 
 static float apply_final_a_speed_limit(const phase_descriptor_t *phase,
+                                       const phase_descriptor_t *next_phase,
                                        float target_speed_mps,
                                        float phase_distance_m)
 {
-    if ((phase == NULL) ||
-        (phase->phase != APP_CHALLENGE_PHASE_ARC_DA) ||
+    if ((phase_is_final_a_arc(phase, next_phase) == 0u) ||
         (phase_distance_m < MAIN_FINAL_A_ALIGN_START_M)) {
         return target_speed_mps;
     }
 
     return clampf(target_speed_mps, 0.0f, MAIN_FINAL_A_ALIGN_SPEED_MPS);
+}
+
+static uint8_t phase_is_q4_a_lap_exit(const main_task_ctx_t *ctx,
+                                      const phase_descriptor_t *next_phase)
+{
+    return ((ctx != NULL) &&
+            (next_phase != NULL) &&
+            (ctx->challenge_active == APP_CHALLENGE_Q4) &&
+            (ctx->sequence_index == 4u) &&
+            (ctx->lap_index < ctx->lap_total) &&
+            (next_phase->action == APP_PHASE_ACTION_GAP_TRAVERSE) &&
+            (next_phase->phase == APP_CHALLENGE_PHASE_GAP_AC))
+               ? 1u
+               : 0u;
 }
 
 static float get_arc_yaw_delta_deg(const main_task_ctx_t *ctx,
@@ -1192,6 +1209,9 @@ static uint8_t run_arc_exit_heading_align(main_task_ctx_t *ctx,
         (next_phase->phase == APP_CHALLENGE_PHASE_GAP_BD)) {
         align_speed_mps = MAIN_ARC_CB_EXIT_ALIGN_SPEED_MPS;
         w_limit_radps = MAIN_ARC_CB_EXIT_ALIGN_W_LIMIT_RADPS;
+    } else if (phase_is_q4_a_lap_exit(ctx, next_phase) != 0u) {
+        align_speed_mps = MAIN_ARC_Q4_A_EXIT_ALIGN_SPEED_MPS;
+        w_limit_radps = MAIN_ARC_Q4_A_EXIT_ALIGN_W_LIMIT_RADPS;
     }
 
     if ((feedback->imu_ready == 0u) || (feedback->imu_stable == 0u)) {
@@ -1679,6 +1699,7 @@ void main_task(void *arg)
 
             target_v_mps = run_arc_track(&ctx, phase, line_controller, &feedback, &command);
             target_v_mps = apply_final_a_speed_limit(phase,
+                                                     next_phase,
                                                      target_v_mps,
                                                      ctx.phase_distance_m);
             ctx.target_speed_mps = target_v_mps;
