@@ -6,6 +6,8 @@
 #include "app_state.h"
 #include "control_task.h"
 #include "main_task.h"
+#include "signal_driver.h"
+#include "signal_task.h"
 #include "oled_task.h"
 #include "sensor_task.h"
 #include "test_task.h"
@@ -64,10 +66,12 @@ int main(void)
     SYSCFG_DL_init();
     configure_uart_rx_idle_pullups();
     app_state_init();
+    signal_driver_init();
 
     create_task_or_halt(sensor_task,  "sensor",  512, 6);
     create_task_or_halt(control_task, "control", 512, 5);
     create_task_or_halt(main_task,    "main",    512, 3);
+    create_task_or_halt(signal_task,  "signal",  256, 1);
     create_task_or_halt(test_task,    "test",    512, 2);
     create_task_or_halt(oled_task,    "oled",    384, 1);
 

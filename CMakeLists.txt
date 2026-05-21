@@ -31,6 +31,7 @@ set(APP_SOURCES
     ./Sources/tasks/sensor_task.c
     ./Sources/tasks/control_task.c
     ./Sources/tasks/main_task.c
+    ./Sources/tasks/signal_task.c
     ./Sources/tasks/test_task.c
     ./Sources/tasks/oled_task.c
 )
