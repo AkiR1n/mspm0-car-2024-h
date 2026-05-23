@@ -41,6 +41,51 @@ static int round_to_int(float value)
     return (int)(value - 0.5f);
 }
 
+static void format_challenge_slot(char slot[5],
+                                  app_challenge_t challenge,
+                                  const app_challenge_info_t *info)
+{
+    uint8_t running;
+
+    if ((slot == NULL) || (info == NULL)) {
+        return;
+    }
+
+    running = ((info->status == APP_CHALLENGE_STATUS_ALIGN) ||
+               (info->status == APP_CHALLENGE_STATUS_RUNNING))
+                  ? 1u
+                  : 0u;
+
+    if ((running != 0u) && (info->active == challenge)) {
+        snprintf(slot, 5u, "*%s*", app_challenge_name(challenge));
+    } else if (info->selected == challenge) {
+        snprintf(slot, 5u, "[%s]", app_challenge_name(challenge));
+    } else {
+        snprintf(slot, 5u, " %s ", app_challenge_name(challenge));
+    }
+}
+
+static void format_challenge_line(char *line,
+                                  size_t size,
+                                  const app_challenge_info_t *info)
+{
+    char q1[5];
+    char q2[5];
+    char q3[5];
+    char q4[5];
+
+    if ((line == NULL) || (size == 0u) || (info == NULL)) {
+        return;
+    }
+
+    format_challenge_slot(q1, APP_CHALLENGE_Q1, info);
+    format_challenge_slot(q2, APP_CHALLENGE_Q2, info);
+    format_challenge_slot(q3, APP_CHALLENGE_Q3, info);
+    format_challenge_slot(q4, APP_CHALLENGE_Q4, info);
+
+    snprintf(line, size, "%s %s %s %s", q1, q2, q3, q4);
+}
+
 void oled_task(void *arg)
 {
     TickType_t next;
@@ -60,54 +105,51 @@ void oled_task(void *arg)
     for (;;) {
         app_state_get_snapshot(&snapshot);
 
-        snprintf(line0,
-                 sizeof(line0),
-                 "Q:%s %s L:%u/%u",
-                 app_challenge_name(snapshot.challenge.selected),
-                 app_challenge_status_name(snapshot.challenge.status),
-                 (unsigned)snapshot.challenge.lap_index,
-                 (unsigned)snapshot.challenge.lap_total);
+        format_challenge_line(line0, sizeof(line0), &snapshot.challenge);
         snprintf(line1,
                  sizeof(line1),
-                 "P:%s A:%s",
-                 app_challenge_phase_name(snapshot.challenge.phase),
-                 app_phase_action_name(snapshot.challenge.action));
+                 "%s L:%u/%u CP:%u",
+                 app_challenge_status_name(snapshot.challenge.status),
+                 (unsigned)snapshot.challenge.lap_index,
+                 (unsigned)snapshot.challenge.lap_total,
+                 (unsigned)snapshot.challenge.checkpoint_count);
         snprintf(line2,
                  sizeof(line2),
-                 "E:%s T:%lu",
-                 app_event_name(snapshot.challenge.last_event),
-                 (unsigned long)snapshot.challenge.last_event_ms);
+                 "%s D:%1.2f",
+                 app_challenge_phase_name(snapshot.challenge.phase),
+                 (double)snapshot.challenge.phase_distance_m);
 
         if (snapshot.challenge.status == APP_CHALLENGE_STATUS_READY) {
             snprintf(line3,
                      sizeof(line3),
-                     "READY IMU:%u ST:%u",
+                     "IMU:%u/%u M:%s",
                      (unsigned)snapshot.feedback.imu_ready,
-                     (unsigned)snapshot.feedback.imu_stable);
+                     (unsigned)snapshot.feedback.imu_stable,
+                     app_mode_name(snapshot.mode));
         } else if (snapshot.challenge.action == APP_PHASE_ACTION_GAP_TRAVERSE) {
             snprintf(line3,
                      sizeof(line3),
-                     "H:%+4d D:%1.2f",
+                     "H:%+4d Y:%+4d",
                      round_to_int(snapshot.challenge.heading_error_deg),
-                     (double)snapshot.challenge.phase_distance_m);
+                     round_to_int(snapshot.feedback.yaw_deg));
         } else if (snapshot.challenge.action == APP_PHASE_ACTION_ARC_TRACK) {
             snprintf(line3,
                      sizeof(line3),
-                     "L:%+3d D:%1.2f",
+                     "LINE:%+3d DET:%u",
                      (int)snapshot.feedback.line_position,
-                     (double)snapshot.challenge.phase_distance_m);
+                     (unsigned)snapshot.feedback.line_detected);
         } else if (snapshot.challenge.action == APP_PHASE_ACTION_ALIGN_START) {
             snprintf(line3,
                      sizeof(line3),
-                     "ALIGN Y:%+4d ST:%u",
+                     "Y:%+4d IMU:%u/%u",
                      round_to_int(snapshot.feedback.yaw_deg),
+                     (unsigned)snapshot.feedback.imu_ready,
                      (unsigned)snapshot.feedback.imu_stable);
         } else {
             snprintf(line3,
                      sizeof(line3),
-                     "M:%s S:%s",
-                     app_mode_name(snapshot.mode),
-                     app_main_state_name(snapshot.main_state));
+                     "EV:%s",
+                     app_event_name(snapshot.challenge.last_event));
         }
 
         pad_text_line(line0, sizeof(line0));

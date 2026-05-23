@@ -26,7 +26,7 @@
 #define MODE_AUTO_PHASE_SIZE         32U
 #define MODE_REPORT_PERIOD_MS        50U
 #define MODE_DUTY_SCALE              0.01f
-#define MODE_KEY_COUNT               2U
+#define MODE_KEY_COUNT               4U
 #define MODE_KEY_DEBOUNCE_SAMPLES    2U
 
 typedef struct {
@@ -64,6 +64,8 @@ static uint32_t s_uart1_line_too_long = 0u;
 static const mode_key_desc_t k_mode_keys[MODE_KEY_COUNT] = {
     {GPIO_Switch_Key_1_PORT, GPIO_Switch_Key_1_PIN, "key1"},
     {GPIO_Switch_Key_2_PORT, GPIO_Switch_Key_2_PIN, "key2"},
+    {GPIO_Switch_Key_3_PORT, GPIO_Switch_Key_3_PIN, "key3"},
+    {GPIO_Switch_Key_4_PORT, GPIO_Switch_Key_4_PIN, "key4"},
 };
 
 static void format_line_bits(uint8_t bits, char out[8])
@@ -864,55 +866,54 @@ static uint8_t read_switch_pressed(const mode_key_desc_t *key)
     return (DL_GPIO_readPins(key->port, key->pin) == 0u) ? 1u : 0u;
 }
 
+static app_challenge_t challenge_for_key(uint8_t key_index)
+{
+    switch (key_index) {
+    case 0u:
+        return APP_CHALLENGE_Q1;
+    case 1u:
+        return APP_CHALLENGE_Q2;
+    case 2u:
+        return APP_CHALLENGE_Q3;
+    case 3u:
+        return APP_CHALLENGE_Q4;
+    default:
+        return APP_CHALLENGE_NONE;
+    }
+}
+
 static void handle_key_press(test_task_ctx_t *ctx, uint8_t key_index)
 {
     app_challenge_info_t challenge;
+    app_challenge_t key_challenge;
 
     (void)ctx;
 
     app_state_get_challenge(&challenge);
-
-    if (key_index == 0u) {
-        if ((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
-            (challenge.status == APP_CHALLENGE_STATUS_RUNNING)) {
-            uart_printf("%s busy=%s\r\n",
-                        k_mode_keys[key_index].name,
-                        app_challenge_name(challenge.active));
-            return;
-        }
-
-        if (challenge.selected == APP_CHALLENGE_Q1) {
-            select_challenge(APP_CHALLENGE_Q2);
-        } else if (challenge.selected == APP_CHALLENGE_Q2) {
-            select_challenge(APP_CHALLENGE_Q3);
-        } else if (challenge.selected == APP_CHALLENGE_Q3) {
-            select_challenge(APP_CHALLENGE_Q4);
-        } else {
-            select_challenge(APP_CHALLENGE_Q1);
-        }
-
-        app_state_get_challenge(&challenge);
-        uart_printf("%s select=%s\r\n",
-                    k_mode_keys[key_index].name,
-                    app_challenge_name(challenge.selected));
+    key_challenge = challenge_for_key(key_index);
+    if (key_challenge == APP_CHALLENGE_NONE) {
         return;
     }
 
-    if (key_index == 1u) {
-        if ((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
-            (challenge.status == APP_CHALLENGE_STATUS_RUNNING)) {
-            apply_stop_command();
-            uart_printf("%s stop\r\n", k_mode_keys[key_index].name);
-        } else if (start_selected_challenge()) {
-            app_state_get_challenge(&challenge);
-            uart_printf("%s run=%s\r\n",
-                        k_mode_keys[key_index].name,
-                        app_challenge_name(challenge.active));
-        } else {
-            uart_printf("%s start blocked: sel=%s\r\n",
-                        k_mode_keys[key_index].name,
-                        app_challenge_name(challenge.selected));
-        }
+    if ((challenge.status == APP_CHALLENGE_STATUS_ALIGN) ||
+        (challenge.status == APP_CHALLENGE_STATUS_RUNNING)) {
+        uart_printf("%s busy=%s\r\n",
+                    k_mode_keys[key_index].name,
+                    app_challenge_name(challenge.active));
+        return;
+    }
+
+    select_challenge(key_challenge);
+    if (start_selected_challenge()) {
+        app_state_get_challenge(&challenge);
+        uart_printf("%s run=%s\r\n",
+                    k_mode_keys[key_index].name,
+                    app_challenge_name(challenge.active));
+    } else {
+        app_state_get_challenge(&challenge);
+        uart_printf("%s start blocked: sel=%s\r\n",
+                    k_mode_keys[key_index].name,
+                    app_challenge_name(challenge.selected));
     }
 }
 
@@ -1041,7 +1042,7 @@ static void clear_uart_stats(void)
 static void print_help(void)
 {
     uart_printf("test task ready\r\n");
-    uart_printf("keys: key1=select_q1_q4 key2=run_or_stop\r\n");
+    uart_printf("keys: key1=q1_run key2=q2_run key3=q3_run key4=q4_run\r\n");
     uart_printf("cmd: q1 | q2 | q3 | q4 | run | straight[,dist_m[,v_mps]] | line[,v_mps[,dist_m]] | <left%%>,<right%%> | spd,<left_mps>,<right_mps> | twist,<v>,<w> | pid[|l|r],kp,ki,kd[,ff] | showpid | linepol,<0|1> | lineraw | linecfg[,reset|<idx>,<pin>] | uartstat[,clear] | imustat | main | stop | imu[,<ms>] | imuz,<sign> | imus,<sens>\r\n");
     uart_printf("auto: auto,on|off | auto,phase,<label> | auto,duty,<l%%>,<r%%> | auto,spd,<l>,<r> | auto,pid | auto,pid,<left|right|both>,kp,ki,kd[,ff] | auto,sample | auto,stop\r\n");
     print_pid_line("left", 0);

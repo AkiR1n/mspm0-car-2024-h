@@ -80,7 +80,7 @@
 #define MAIN_FIELD_TO_IMU_YAW_SIGN        (-1.0f)
 #define MAIN_HEADING_AB_DEG               0.0f
 #define MAIN_HEADING_CD_DEG               180.0f
-#define MAIN_HEADING_AC_INNER_BIAS_DEG    (1.0f)
+#define MAIN_HEADING_AC_INNER_BIAS_DEG    (2.0f)
 #define MAIN_HEADING_AC_DEG               (-38.659809f + MAIN_HEADING_AC_INNER_BIAS_DEG)
 // Inward bias on B->D after WT101 yaw sign conversion.
 #define MAIN_HEADING_BD_INNER_BIAS_DEG    (0.0f)
