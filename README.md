@@ -88,13 +88,47 @@ cmake --build build --target bin
 - `.clangd`
 - `.vscode/jlink-flash.jlink`
 
+当前 VS Code 工作流默认按 **Linux 远端执行** 维护：
+
+- 推荐方式：在 macOS 上用 VS Code + Remote SSH 打开这台 Linux 机器上的仓库
+- `tasks.json` 里的任务默认都在 Linux 远端执行
+- 不再把 macOS 本地作为编译 / 烧录 / 调试 / 串口的主支持环境
+- 所有任务统一收口到 `scripts/dev/*.sh`
+
+第一次接手环境时，先运行：
+
+```sh
+Run Task -> doctor
+```
+
+它会检查：
+
+- `cmake` / `ninja` / `arm-none-eabi-gcc` / `arm-none-eabi-gdb`
+- SysConfig CLI 与 MSPM0 SDK 路径
+- `pyocd` / `JLinkExe` / `picocom` 等可选工具
+- 常见串口设备是否在远端 Linux 上可见
+
+串口相关任务支持 `auto` 选项，会优先尝试：
+
+- `/dev/ttyACM0`
+- `/dev/ttyACM1`
+- `/dev/ttyUSB0`
+- `/dev/ttyUSB1`
+
+也可以通过环境变量覆盖：
+
+```sh
+export MSPM0_SERIAL_PORT=/dev/ttyACM1
+```
+
 推荐日常顺序：
 
 1. 在 CCS Theia 修改 `SysConfig/mspm0-school-2026.syscfg`
-2. 在 VS Code 运行 `syscfg`
-3. 运行 `configure` / `build`
-4. 运行 `hex` 或 `flash-elf`
-5. 运行 `serial`
+2. 在 VS Code 运行 `doctor`
+3. 运行 `syscfg`
+4. 运行 `configure` / `build`
+5. 运行 `hex` 或 `flash-elf`
+6. 运行 `serial`
 
 ## J-Link
 
@@ -110,3 +144,21 @@ cmake --build build --target bin
 - interface: `SWD`
 - speed: `4000 kHz`
 - executable: `build/mspm0_school_2026.elf`
+
+## Remote SSH 调试
+
+`CMSIS-DAP Debug (pyOCD)` 现在会先执行 `debug-prepare`：
+
+1. `build`
+2. 启动或复用 Linux 远端上的 `pyOCD gdbserver`
+
+`pyOCD gdbserver` 的状态文件和日志放在：
+
+- `build/.dev/pyocd-gdbserver.pid`
+- `build/.dev/pyocd-gdbserver.log`
+
+如果需要手动关闭，运行：
+
+```sh
+Run Task -> debug-server-kill
+```

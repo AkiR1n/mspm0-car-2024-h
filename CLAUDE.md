@@ -37,9 +37,11 @@ pyocd flash -t mspm0g3507 build/mspm0_school_2026.elf
 picocom -b 115200 /dev/ttyACM0
 ```
 
-VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
+VS Code 中上述命令已配置为 `.vscode/tasks.json` 中的 task（`doctor`, `syscfg`, `configure`, `build`, `hex`, `bin`, `flash`, `flash-elf`, `flash-jlink`, `serial`, `debug-server`, `imu-monitor`），`Ctrl+Shift+P → Run Task` 即可。
 
-调试：`Run Task → debug-server` 启动 pyOCD GDB server（常驻后台），之后 F5 直接调试。CMSIS-DAP 探针不能反复重连，server 保持运行即可。
+当前仓库的 VS Code task 统一走 `scripts/dev/*.sh`，默认按 Linux 远端执行维护。推荐方式是在 macOS 上通过 VS Code Remote SSH 打开 Linux 机器上的仓库，让编译、烧录、调试、串口都在 Linux 端完成。
+
+调试：`CMSIS-DAP Debug (pyOCD)` 会先执行 `debug-prepare`，它会自动 `build` 并启动或复用 Linux 远端上的 pyOCD GDB server。状态文件和日志位于 `build/.dev/pyocd-gdbserver.{pid,log}`。
 
 产物：`build/mspm0_school_2026.{elf,hex,bin}`, `build/memory.map`, `build/compile_commands.json`
 

@@ -2,23 +2,18 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "doctor",
+      "type": "process",
+      "command": "${workspaceFolder}/scripts/dev/doctor.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "syscfg",
       "type": "process",
-      "command": "/opt/ccstudio/ccs/utils/sysconfig_1.26.0/sysconfig_cli.sh",
-      "args": [
-        "--product",
-        "${env:HOME}/ti/mspm0_sdk_2_10_00_04/.metadata/product.json",
-        "--device",
-        "MSPM0G3507",
-        "--package",
-        "LQFP-64(PM)",
-        "--compiler",
-        "gcc",
-        "--script",
-        "SysConfig/mspm0-school-2026.syscfg",
-        "--output",
-        "SysConfig"
-      ],
+      "command": "${workspaceFolder}/scripts/dev/syscfg.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -27,15 +22,9 @@
     {
       "label": "configure",
       "type": "process",
-      "command": "cmake",
+      "command": "${workspaceFolder}/scripts/dev/build.sh",
       "args": [
-        "-S",
-        ".",
-        "-B",
-        "build",
-        "-GNinja",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+        "configure"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -47,17 +36,13 @@
     {
       "label": "build",
       "type": "process",
-      "command": "cmake",
+      "command": "${workspaceFolder}/scripts/dev/build.sh",
       "args": [
-        "--build",
         "build"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "dependsOn": [
-        "configure"
-      ],
       "problemMatcher": [
         "$gcc"
       ],
@@ -69,18 +54,13 @@
     {
       "label": "rebuild",
       "type": "process",
-      "command": "cmake",
+      "command": "${workspaceFolder}/scripts/dev/build.sh",
       "args": [
-        "--build",
-        "build",
-        "--clean-first"
+        "rebuild"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "dependsOn": [
-        "configure"
-      ],
       "problemMatcher": [
         "$gcc"
       ]
@@ -88,11 +68,9 @@
     {
       "label": "hex",
       "type": "process",
-      "command": "cmake",
+      "command": "${workspaceFolder}/scripts/dev/build.sh",
       "args": [
-        "--build",
-        "build",
-        "--target",
+        "target",
         "hex"
       ],
       "options": {
@@ -106,11 +84,9 @@
     {
       "label": "bin",
       "type": "process",
-      "command": "cmake",
+      "command": "${workspaceFolder}/scripts/dev/build.sh",
       "args": [
-        "--build",
-        "build",
-        "--target",
+        "target",
         "bin"
       ],
       "options": {
@@ -124,13 +100,9 @@
     {
       "label": "flash-elf",
       "type": "process",
-      "command": "/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite",
+      "command": "${workspaceFolder}/scripts/dev/flash.sh",
       "args": [
-        "load",
-        "-c",
-        "targetConfigs/MSPM0G3507.ccxml",
-        "-f",
-        "build/mspm0_school_2026.elf"
+        "dslite-elf"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -143,13 +115,9 @@
     {
       "label": "flash-hex",
       "type": "process",
-      "command": "/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite",
+      "command": "${workspaceFolder}/scripts/dev/flash.sh",
       "args": [
-        "load",
-        "-c",
-        "targetConfigs/MSPM0G3507.ccxml",
-        "-f",
-        "build/mspm0_school_2026.hex"
+        "dslite-hex"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -162,11 +130,9 @@
     {
       "label": "flash",
       "type": "process",
-      "command": "pyocd",
+      "command": "${workspaceFolder}/scripts/dev/flash.sh",
       "args": [
-        "flash",
-        "-t", "mspm0g3507",
-        "build/mspm0_school_2026.elf"
+        "pyocd"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -179,10 +145,9 @@
     {
       "label": "flash-jlink",
       "type": "process",
-      "command": "/usr/bin/JLinkExe",
+      "command": "${workspaceFolder}/scripts/dev/flash.sh",
       "args": [
-        "-CommanderScript",
-        ".vscode/jlink-flash.jlink"
+        "jlink"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -195,24 +160,26 @@
     {
       "label": "debug-server",
       "type": "process",
-      "command": "/home/aki/.local/bin/pyocd",
+      "command": "${workspaceFolder}/scripts/dev/debug_server.sh",
       "args": [
-        "gdbserver",
-        "-t", "mspm0g3507",
-        "--persist"
+        "start"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": false
+      },
       "problemMatcher": []
     },
     {
       "label": "debug-server-kill",
       "type": "process",
-      "command": "pkill",
+      "command": "${workspaceFolder}/scripts/dev/debug_server.sh",
       "args": [
-        "-f", "pyocd gdbserver"
+        "stop"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -220,13 +187,21 @@
       "problemMatcher": []
     },
     {
+      "label": "debug-prepare",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "build",
+        "debug-server"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "serial",
       "type": "process",
-      "command": "picocom",
+      "command": "${workspaceFolder}/scripts/dev/serial.sh",
       "args": [
-        "-b",
-        "115200",
-        "${input:serialPort}"
+        "${input:serialPort}",
+        "${input:serialBaud}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -236,9 +211,9 @@
     {
       "label": "imu-monitor",
       "type": "process",
-      "command": "python3",
+      "command": "${workspaceFolder}/scripts/dev/python_tool.sh",
       "args": [
-        "${workspaceFolder}/tools/imu_monitor.py",
+        "imu-monitor",
         "${input:serialPort}",
         "${input:serialBaud}"
       ],
@@ -250,9 +225,9 @@
     {
       "label": "vehicle-dashboard",
       "type": "process",
-      "command": "python3",
+      "command": "${workspaceFolder}/scripts/dev/python_tool.sh",
       "args": [
-        "${workspaceFolder}/tools/vehicle_dashboard.py",
+        "vehicle-dashboard",
         "${input:serialPort}",
         "${input:serialBaud}"
       ],
@@ -264,17 +239,12 @@
     {
       "label": "web-dashboard",
       "type": "process",
-      "command": "${workspaceFolder}/.venv/bin/python",
+      "command": "${workspaceFolder}/scripts/dev/python_tool.sh",
       "args": [
-        "${workspaceFolder}/tools/web_dashboard.py",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "${input:webDashboardPort}",
-        "--serial-port",
+        "web-dashboard",
         "${input:serialPort}",
-        "--baud",
-        "${input:serialBaud}"
+        "${input:serialBaud}",
+        "${input:webDashboardPort}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -293,10 +263,13 @@
       "type": "pickString",
       "description": "选择串口设备",
       "options": [
+        "auto",
         "/dev/ttyACM0",
-        "/dev/ttyACM1"
+        "/dev/ttyACM1",
+        "/dev/ttyUSB0",
+        "/dev/ttyUSB1"
       ],
-      "default": "/dev/ttyACM0"
+      "default": "auto"
     },
     {
       "id": "serialBaud",

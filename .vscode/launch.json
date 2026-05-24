@@ -55,7 +55,7 @@
       "gdbTarget": "localhost:3333",
       "armToolchainPath": "/usr/bin",
       "gdbPath": "/usr/bin/arm-none-eabi-gdb",
-      "preLaunchTask": "build",
+      "preLaunchTask": "debug-prepare",
       "postLaunchCommands": [
         "monitor reset halt",
         "load",
