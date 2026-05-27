@@ -181,3 +181,75 @@ Useful documents:
 - `archive/legacy/` is kept for historical reference and comparison
 - the ML branch is part of the same git repository; the worktree itself is local, but the branch is pushed normally
 - the repository currently preserves multiple experiment branches because tuning and path-control validation were done incrementally
+
+## 中文说明
+
+### 项目定位
+
+这是一个面向 **2026 校赛** 的 MSPM0 智能小车项目，题目背景基于 **2024 电赛 H 题**。  
+仓库同时保留了两条线：
+
+- 比赛主线：基于规则控制的实车可运行版本
+- 研究分支：基于数据采集与模型训练的 ML 实验版本
+
+### 当前状态
+
+- 当前主芯片为 `MSPM0G3507`
+- 运行框架为 `FreeRTOS`
+- 当前主控制方案为 `IMU + 编码器 + 7 路循迹` 融合控制
+- `Q1 ~ Q4` 已完成实测验证
+- `Q4` 当前实测完成时间约为 `55 s`
+
+### 关键版本说明
+
+- `stable-q1-q4-20260521`  
+  表示 Q1~Q4 已经达到稳定验证通过的基线版本
+
+- `school-final-2026`  
+  表示校赛最终实际使用版本，对应提交 `87d75e4 Update challenge controls and OLED status`
+
+### 当前主线结构
+
+当前运行主线由 5 个 FreeRTOS 任务组成：
+
+- `sensor_task`：采集编码器、IMU、循迹反馈
+- `control_task`：执行双轮闭环与底盘差速控制
+- `main_task`：执行 Q1~Q4 赛题状态机
+- `test_task`：处理按键、串口命令、调试参数
+- `oled_task`：显示题号、阶段和运行状态
+
+共享状态统一收口在：
+
+- `Sources/app_state.h`
+- `Sources/app_state.c`
+
+### 控制思路
+
+当前主逻辑主要位于：
+
+- `Sources/tasks/main_task.c`
+
+整体思路是按动作原语组织赛题流程：
+
+- `ALIGN_START`
+- `GAP_TRAVERSE`
+- `ARC_TRACK`
+- `STOP_AND_SIGNAL`
+
+其中：
+
+- 直线无线段主要依靠 IMU 航向保持
+- 圆弧段主要依靠循迹闭环
+- `Q4` 使用多圈状态机，并对 A 点重复经过和最终停车做了专门处理
+
+### 主要分支
+
+- `main`：当前比赛主线
+- `ml-data-driven-car`：ML 数据采集、训练与建模实验分支
+- `vscode-linux-remote-workflow`：Linux / Remote SSH 工作流重构分支，尚未合入主线
+
+### 补充说明
+
+- `archive/legacy/` 目录保留历史控制代码，仅用于参考
+- ML worktree 是本地工作方式，真正上传到 GitHub 的仍然是同一个仓库中的 `ml-data-driven-car` 分支
+- 仓库中保留了较多实验分支，因为路径控制、循迹和 Q4 终点行为是逐步调出来的
