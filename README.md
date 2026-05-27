@@ -1,112 +1,183 @@
-# mspm0-school-2026
+# mspm0-car-2024-h
 
-2026 校赛主工程，当前主线固定为 `MSPM0G3507 + FreeRTOS + chassis refactor + MPU6050 + UART0`。
+MSPM0 car project for the 2026 school competition, based on the 2024 EDC H challenge.  
+The repository contains both the rule-based competition control stack and an ML experimentation branch.
 
-这个目录直接从 `mspm0-car-2026` 收敛而来，但已经变成独立工程：
+## Project Status
 
-- 默认运行主线已切到 `sensor / control / mode_debug` 三任务
-- 当前主链走 `Drivers/Hal + Drivers/Devices + Control + Sources/tasks`
-- 已脱主线的旧驱动与旧任务已移动到 `archive/legacy/`
-- `Drivers/LineTracker` 暂时仍保留在主目录，因为新的 `line_sensor` 设备层还在直接复用它
-- CCS Theia 只负责 `.syscfg` 图形编辑，日常工作流转到 VS Code
+- Hardware platform: `MSPM0G3507 + FreeRTOS`
+- Main control path: IMU + encoder + line sensor fusion
+- Challenge coverage: `Q1 ~ Q4`
+- Q4 measured completion time: about `55 s`
+- Stable validation tag: `stable-q1-q4-20260521`
 
-## 构建环境
+Current `main` is the practical competition branch.  
+ML exploration is kept on `ml-data-driven-car`.
 
-| 组件 | 版本 / 路径 |
-| ---- | ---- |
-| arm-none-eabi-gcc | 14.2.0（`/usr/bin`） |
-| CMake | ≥ 3.30（Ninja 生成器） |
+## What `stable-q1-q4-20260521` Means
+
+Tag `stable-q1-q4-20260521` points to commit `b6adab5`:
+
+- commit: `b6adab5677831d9092264635fd640b598e7123d3`
+- message: `Mark Q1-Q4 challenge validation stable`
+
+That tag marks the point where the project had already reached a stable Q1-Q4 validation baseline.
+
+Changes added after that tag on `main` mainly include:
+
+- event-driven buzzer / LED signaling
+- Q4 A-point exit handling adjustments
+- direct key mapping for `Q1/Q2/Q3/Q4`
+- simplified OLED runtime display
+- wheel response probe tool
+- report code excerpts under `docs/report.md`
+
+So the tag is a stable control milestone, not the final repository state.
+
+## Repository Layout
+
+```text
+Control/              Control algorithms: PID, wheel, chassis, yaw, line
+Drivers/              HAL and device drivers
+Sources/              Application layer, app_state, tasks, signal handling
+SysConfig/            MSPM0 SysConfig project and generated files
+docs/                 Project notes, plans, reports, tuning records
+tools/                Debugging, visualization, probing, data tools
+archive/legacy/       Older control path kept only for reference
+```
+
+## Active Runtime Architecture
+
+The current competition control path is based on five FreeRTOS tasks:
+
+- `sensor_task`  
+  Refreshes encoder, IMU, and line-sensor feedback every 10 ms
+
+- `control_task`  
+  Runs wheel closed-loop control and differential drive execution every 10 ms
+
+- `main_task`  
+  Runs the challenge state machine for `Q1 ~ Q4`
+
+- `test_task`  
+  Handles keys, serial commands, runtime tuning, and debug output
+
+- `oled_task`  
+  Displays compact challenge status and runtime information
+
+Shared runtime data is centralized in:
+
+- `Sources/app_state.h`
+- `Sources/app_state.c`
+
+## Control Strategy
+
+The main challenge logic lives in:
+
+- `Sources/tasks/main_task.c`
+
+The control strategy is organized as phase primitives:
+
+- `ALIGN_START`
+- `GAP_TRAVERSE`
+- `ARC_TRACK`
+- `STOP_AND_SIGNAL`
+
+Typical behavior:
+
+- straight gap segments use IMU heading hold
+- arc segments use line tracking
+- Q4 uses a multi-lap state machine with special handling for repeated A-point passes and final stop
+
+Control object construction and default parameters are concentrated in:
+
+- `Sources/chassis_system.c`
+
+## Key Branches
+
+- `main`  
+  Current competition branch
+
+- `ml-data-driven-car`  
+  Worktree-backed branch for data collection, offline analysis, and model-driven control experiments
+
+- `vscode-linux-remote-workflow`  
+  Separate branch for a Linux-first VS Code / Remote SSH workflow refactor; not merged into `main` yet
+
+## Build Environment
+
+Recommended host environment:
+
+- Linux
+- `arm-none-eabi-gcc`
+- CMake + Ninja
+- MSPM0 SDK
+- TI SysConfig CLI
+
+Key paths used in this project:
+
+| Component | Path |
+| --- | --- |
+| Arm toolchain | `/usr/bin/arm-none-eabi-gcc` |
 | MSPM0 SDK | `~/ti/mspm0_sdk_2_10_00_04/` |
 | SysConfig CLI | `/opt/ccstudio/ccs/utils/sysconfig_1.26.0/sysconfig_cli.sh` |
 | DSLite | `/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite` |
 
-## 构建 / 产物
+## Build
 
 ```sh
-# 1. 改动 SysConfig 后重新生成 ti_msp_dl_config.* + linker
+# Regenerate SysConfig output after modifying .syscfg
 bash /opt/ccstudio/ccs/utils/sysconfig_1.26.0/sysconfig_cli.sh \
     --product ~/ti/mspm0_sdk_2_10_00_04/.metadata/product.json \
     --device MSPM0G3507 --package "LQFP-64(PM)" --compiler gcc \
     --script SysConfig/mspm0-school-2026.syscfg \
     --output SysConfig
 
-# 2. 配置 + 编译
+# Configure and build
 cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build
 
-# 3. 导出 hex / bin
+# Optional outputs
 cmake --build build --target hex
 cmake --build build --target bin
 ```
 
-产物：
+Build artifacts:
 
 - `build/mspm0_school_2026.elf`
 - `build/mspm0_school_2026.hex`
 - `build/mspm0_school_2026.bin`
-- `build/compile_commands.json`
 - `build/memory.map`
 
-## 任务架构
+## Flashing and Debugging
 
-| 任务 | 优先级 | 栈 words | 周期 | 说明 |
-| ---- | ---- | ---- | ---- | ---- |
-| `sensor_task` | 6 | 512 | 10 ms | 刷新编码器 / IMU / 循迹设备，组装 `chassis_feedback_t` |
-| `control_task` | 5 | 512 | 10 ms | 执行 `Twist(v,w)` 或 `WHEEL_TEST` 控制，输出电机命令 |
-| `mode_debug_task` | 2 | 512 | 20 ms | 处理串口命令，维护模式并输出调试 CSV |
+Typical flashing options:
 
-共享状态统一集中在 `Sources/app_state.[ch]`。
+```sh
+# TI DSLite
+/opt/ccstudio/ccs/ccs_base/DebugServer/bin/DSLite load \
+    -c targetConfigs/MSPM0G3507.ccxml \
+    -f build/mspm0_school_2026.elf
 
-## 当前控制主线
+# pyOCD
+pyocd flash -t mspm0g3507 build/mspm0_school_2026.elf
 
-- 设备层：`motor_drv` / `encoder_drv` / `imu_drv` / `line_sensor`
-- 控制层：`pid` / `wheel` / `chassis` / `yaw_controller` / `line_controller`
-- 编码器 GPIO 中断：`GROUP1_IRQHandler -> Encoder_OnEdgeIRQ()`
-- 编码器计时中断：`TIMA1_IRQHandler -> Encoder_OnSampleTick()`
-- 当前调试模式以 `WHEEL_TEST` 和 `Twist(v,w)` 为主
+# J-Link
+JLinkExe -CommanderScript .vscode/jlink-flash.jlink
+```
 
-## SysConfig 范围
+## Reports and Notes
 
-首版 `.syscfg` 只保留：
+Useful documents:
 
-- `PWM_MOTOR`
-- `TIMER_CALC`
-- `GPIO_ENCODER`
-- `I2C_MPU6050`
-- `I2C_OLED`
-- `UART0`
-- 循迹相关 GPIO
-- LED / Key GPIO
+- [docs/H_PROBLEM_PLAN.md](docs/H_PROBLEM_PLAN.md)
+- [docs/CONTROL_CODE_SUMMARY.md](docs/CONTROL_CODE_SUMMARY.md)
+- [docs/REFACTOR_ARCHIVE_20260422.md](docs/REFACTOR_ARCHIVE_20260422.md)
+- [docs/STAGE_SUMMARY.md](docs/STAGE_SUMMARY.md)
+- [docs/report.md](docs/report.md)
 
-## VS Code
+## Notes
 
-已补齐：
-
-- `.vscode/tasks.json`
-- `.vscode/extensions.json`
-- `.vscode/launch.json`
-- `.clangd`
-- `.vscode/jlink-flash.jlink`
-
-推荐日常顺序：
-
-1. 在 CCS Theia 修改 `SysConfig/mspm0-school-2026.syscfg`
-2. 在 VS Code 运行 `syscfg`
-3. 运行 `configure` / `build`
-4. 运行 `hex` 或 `flash-elf`
-5. 运行 `serial`
-
-## J-Link
-
-已补充一套 VS Code J-Link 工作流：
-
-- 调试：`Run and Debug -> J-Link Debug`
-- 附加：`Run and Debug -> J-Link Attach`
-- 烧录：`Task -> flash-jlink`
-
-默认参数：
-
-- device: `MSPM0G3507`
-- interface: `SWD`
-- speed: `4000 kHz`
-- executable: `build/mspm0_school_2026.elf`
+- `archive/legacy/` is kept for historical reference and comparison
+- the ML branch is part of the same git repository; the worktree itself is local, but the branch is pushed normally
+- the repository currently preserves multiple experiment branches because tuning and path-control validation were done incrementally
