@@ -104,6 +104,14 @@ Control object construction and default parameters are concentrated in:
 - `vscode-linux-remote-workflow`  
   Separate branch for a Linux-first VS Code / Remote SSH workflow refactor; not merged into `main` yet
 
+## Branch Policy
+
+- `main` is the protected integration branch
+- day-to-day experiments should stay on topic branches
+- `ml-data-driven-car` is the long-lived ML research branch
+- `vscode-linux-remote-workflow` is a pending infrastructure branch and should be merged only after hardware workflow validation
+- historical tuning branches are preserved for traceability, not as the primary development target
+
 ## Build Environment
 
 Recommended host environment:
@@ -247,6 +255,14 @@ Useful documents:
 - `main`：当前比赛主线
 - `ml-data-driven-car`：ML 数据采集、训练与建模实验分支
 - `vscode-linux-remote-workflow`：Linux / Remote SSH 工作流重构分支，尚未合入主线
+
+### 分支策略
+
+- `main` 作为受保护的主集成分支
+- 日常实验和调参优先放在专题分支上进行
+- `ml-data-driven-car` 作为长期保留的 ML 研究分支
+- `vscode-linux-remote-workflow` 属于待验证后再合入的基础设施分支
+- 其余历史调参分支主要用于追溯，不作为默认开发入口
 
 ### 补充说明
 
