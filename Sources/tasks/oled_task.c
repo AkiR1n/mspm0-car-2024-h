@@ -10,7 +10,9 @@
 #include "oled_hardware_i2c.h"
 
 #define OLED_TASK_PERIOD_MS 100U
-#define OLED_TEXT_COLS      21U
+#define OLED_TEXT_COLS      16U
+#define OLED_FORCE_REFRESH_TICKS \
+    (1000U / OLED_TASK_PERIOD_MS)
 
 static void pad_text_line(char *text, size_t size)
 {
@@ -33,57 +35,56 @@ static void pad_text_line(char *text, size_t size)
     text[size - 1u] = '\0';
 }
 
-static int round_to_int(float value)
+static const char *display_task_name(const app_state_snapshot_t *snapshot)
 {
-    if (value >= 0.0f) {
-        return (int)(value + 0.5f);
+    if (snapshot == NULL) {
+        return "NONE";
     }
-    return (int)(value - 0.5f);
+    if (snapshot->challenge.active != APP_CHALLENGE_NONE) {
+        return app_challenge_name(snapshot->challenge.active);
+    }
+    if (snapshot->challenge.selected != APP_CHALLENGE_NONE) {
+        return app_challenge_name(snapshot->challenge.selected);
+    }
+    if (snapshot->mode == APP_MODE_STRAIGHT_TEST) {
+        return "STRAIGHT";
+    }
+    if (snapshot->mode == APP_MODE_LINE_TEST) {
+        return "LINE";
+    }
+    if (snapshot->mode == APP_MODE_WHEEL_TEST) {
+        return "WHEEL";
+    }
+    if (snapshot->mode == APP_MODE_WHEEL_SPEED_TEST) {
+        return "SPEED";
+    }
+    return "NONE";
 }
 
-static void format_challenge_slot(char slot[5],
-                                  app_challenge_t challenge,
-                                  const app_challenge_info_t *info)
+static const char *display_status_name(const app_state_snapshot_t *snapshot)
 {
-    uint8_t running;
-
-    if ((slot == NULL) || (info == NULL)) {
-        return;
+    if (snapshot == NULL) {
+        return "UNKNOWN";
     }
-
-    running = ((info->status == APP_CHALLENGE_STATUS_ALIGN) ||
-               (info->status == APP_CHALLENGE_STATUS_RUNNING))
-                  ? 1u
-                  : 0u;
-
-    if ((running != 0u) && (info->active == challenge)) {
-        snprintf(slot, 5u, "*%s*", app_challenge_name(challenge));
-    } else if (info->selected == challenge) {
-        snprintf(slot, 5u, "[%s]", app_challenge_name(challenge));
-    } else {
-        snprintf(slot, 5u, " %s ", app_challenge_name(challenge));
+    if ((snapshot->challenge.active != APP_CHALLENGE_NONE) ||
+        (snapshot->challenge.selected != APP_CHALLENGE_NONE)) {
+        return app_challenge_status_name(snapshot->challenge.status);
     }
+    return app_mode_name(snapshot->mode);
 }
 
-static void format_challenge_line(char *line,
-                                  size_t size,
-                                  const app_challenge_info_t *info)
+static const char *display_imu_status(const chassis_feedback_t *feedback)
 {
-    char q1[5];
-    char q2[5];
-    char q3[5];
-    char q4[5];
-
-    if ((line == NULL) || (size == 0u) || (info == NULL)) {
-        return;
+    if (feedback == NULL) {
+        return "ERR";
     }
-
-    format_challenge_slot(q1, APP_CHALLENGE_Q1, info);
-    format_challenge_slot(q2, APP_CHALLENGE_Q2, info);
-    format_challenge_slot(q3, APP_CHALLENGE_Q3, info);
-    format_challenge_slot(q4, APP_CHALLENGE_Q4, info);
-
-    snprintf(line, size, "%s %s %s %s", q1, q2, q3, q4);
+    if ((feedback->imu_ready != 0u) && (feedback->imu_stable != 0u)) {
+        return "OK";
+    }
+    if (feedback->imu_ready != 0u) {
+        return "WAIT";
+    }
+    return "ERR";
 }
 
 void oled_task(void *arg)
@@ -94,6 +95,11 @@ void oled_task(void *arg)
     char line1[OLED_TEXT_COLS + 1u];
     char line2[OLED_TEXT_COLS + 1u];
     char line3[OLED_TEXT_COLS + 1u];
+    char prev0[OLED_TEXT_COLS + 1u] = {0};
+    char prev1[OLED_TEXT_COLS + 1u] = {0};
+    char prev2[OLED_TEXT_COLS + 1u] = {0};
+    char prev3[OLED_TEXT_COLS + 1u] = {0};
+    uint8_t refresh_ticks = OLED_FORCE_REFRESH_TICKS;
 
     (void)arg;
 
@@ -105,62 +111,49 @@ void oled_task(void *arg)
     for (;;) {
         app_state_get_snapshot(&snapshot);
 
-        format_challenge_line(line0, sizeof(line0), &snapshot.challenge);
+        snprintf(line0,
+                 sizeof(line0),
+                 "TASK:%s",
+                 display_task_name(&snapshot));
         snprintf(line1,
                  sizeof(line1),
-                 "%s L:%u/%u CP:%u",
-                 app_challenge_status_name(snapshot.challenge.status),
-                 (unsigned)snapshot.challenge.lap_index,
-                 (unsigned)snapshot.challenge.lap_total,
-                 (unsigned)snapshot.challenge.checkpoint_count);
+                 "STATE:%s",
+                 display_status_name(&snapshot));
         snprintf(line2,
                  sizeof(line2),
-                 "%s D:%1.2f",
-                 app_challenge_phase_name(snapshot.challenge.phase),
-                 (double)snapshot.challenge.phase_distance_m);
-
-        if (snapshot.challenge.status == APP_CHALLENGE_STATUS_READY) {
-            snprintf(line3,
-                     sizeof(line3),
-                     "IMU:%u/%u M:%s",
-                     (unsigned)snapshot.feedback.imu_ready,
-                     (unsigned)snapshot.feedback.imu_stable,
-                     app_mode_name(snapshot.mode));
-        } else if (snapshot.challenge.action == APP_PHASE_ACTION_GAP_TRAVERSE) {
-            snprintf(line3,
-                     sizeof(line3),
-                     "H:%+4d Y:%+4d",
-                     round_to_int(snapshot.challenge.heading_error_deg),
-                     round_to_int(snapshot.feedback.yaw_deg));
-        } else if (snapshot.challenge.action == APP_PHASE_ACTION_ARC_TRACK) {
-            snprintf(line3,
-                     sizeof(line3),
-                     "LINE:%+3d DET:%u",
-                     (int)snapshot.feedback.line_position,
-                     (unsigned)snapshot.feedback.line_detected);
-        } else if (snapshot.challenge.action == APP_PHASE_ACTION_ALIGN_START) {
-            snprintf(line3,
-                     sizeof(line3),
-                     "Y:%+4d IMU:%u/%u",
-                     round_to_int(snapshot.feedback.yaw_deg),
-                     (unsigned)snapshot.feedback.imu_ready,
-                     (unsigned)snapshot.feedback.imu_stable);
-        } else {
-            snprintf(line3,
-                     sizeof(line3),
-                     "EV:%s",
-                     app_event_name(snapshot.challenge.last_event));
-        }
+                 "IMU:%s",
+                 display_imu_status(&snapshot.feedback));
+        snprintf(line3,
+                 sizeof(line3),
+                 "YAW:%+7.1f",
+                 (double)snapshot.feedback.yaw_deg);
 
         pad_text_line(line0, sizeof(line0));
         pad_text_line(line1, sizeof(line1));
         pad_text_line(line2, sizeof(line2));
         pad_text_line(line3, sizeof(line3));
 
-        OLED_ShowString(0, 0, (uint8_t *)line0, 8);
-        OLED_ShowString(0, 1, (uint8_t *)line1, 8);
-        OLED_ShowString(0, 2, (uint8_t *)line2, 8);
-        OLED_ShowString(0, 3, (uint8_t *)line3, 8);
+        refresh_ticks++;
+        if (refresh_ticks >= OLED_FORCE_REFRESH_TICKS) {
+            refresh_ticks = 0u;
+        }
+
+        if ((refresh_ticks == 0u) || (strcmp(prev0, line0) != 0)) {
+            OLED_ShowString16Line(0, line0, OLED_TEXT_COLS);
+            memcpy(prev0, line0, sizeof(prev0));
+        }
+        if ((refresh_ticks == 0u) || (strcmp(prev1, line1) != 0)) {
+            OLED_ShowString16Line(2, line1, OLED_TEXT_COLS);
+            memcpy(prev1, line1, sizeof(prev1));
+        }
+        if ((refresh_ticks == 0u) || (strcmp(prev2, line2) != 0)) {
+            OLED_ShowString16Line(4, line2, OLED_TEXT_COLS);
+            memcpy(prev2, line2, sizeof(prev2));
+        }
+        if ((refresh_ticks == 0u) || (strcmp(prev3, line3) != 0)) {
+            OLED_ShowString16Line(6, line3, OLED_TEXT_COLS);
+            memcpy(prev3, line3, sizeof(prev3));
+        }
 
         vTaskDelayUntil(&next, pdMS_TO_TICKS(OLED_TASK_PERIOD_MS));
     }

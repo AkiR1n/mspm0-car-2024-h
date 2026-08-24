@@ -2,7 +2,14 @@
 #include "oledfont.h"
 #include "clock.h"
 
-#define I2C_TIMEOUT_MS  (10)
+#include <stddef.h>
+
+#define I2C_TIMEOUT_MS          (10)
+#define OLED_I2C_ADDR           0x3CU
+#define OLED_I2C_RETRY_COUNT    2U
+#define OLED_PAGE_WIDTH         128U
+#define OLED_FAST_LINE_COLS     16U
+#define OLED_MAX_WRITE_PAYLOAD  OLED_PAGE_WIDTH
 
 //OLED的显存
 //存放格式如下.
@@ -18,6 +25,89 @@
 void delay_ms(uint32_t ms)
 {
     mspm0_delay_ms(ms);
+}
+
+static int oled_i2c_write_raw_once(const uint8_t *data, uint16_t length)
+{
+    unsigned int cnt;
+    const uint8_t *ptr;
+    unsigned long start;
+    unsigned long cur;
+
+    if ((data == NULL) || (length == 0u)) {
+        return 0;
+    }
+
+    mspm0_get_clock_ms(&start);
+    while (!(DL_I2C_getControllerStatus(I2C_OLED_INST) & DL_I2C_CONTROLLER_STATUS_IDLE)) {
+        mspm0_get_clock_ms(&cur);
+        if (cur >= (start + I2C_TIMEOUT_MS)) {
+            return -1;
+        }
+    }
+
+    cnt = length;
+    ptr = data;
+    DL_I2C_clearInterruptStatus(I2C_OLED_INST, DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+    DL_I2C_startControllerTransfer(I2C_OLED_INST,
+                                   OLED_I2C_ADDR,
+                                   DL_I2C_CONTROLLER_DIRECTION_TX,
+                                   length);
+
+    while ((cnt > 0u) ||
+           !DL_I2C_getRawInterruptStatus(I2C_OLED_INST,
+                                         DL_I2C_INTERRUPT_CONTROLLER_TX_DONE)) {
+        if (cnt > 0u) {
+            unsigned int fillcnt = DL_I2C_fillControllerTXFIFO(I2C_OLED_INST,
+                                                               ptr,
+                                                               cnt);
+            cnt -= fillcnt;
+            ptr += fillcnt;
+        }
+
+        mspm0_get_clock_ms(&cur);
+        if (cur >= (start + I2C_TIMEOUT_MS)) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static int oled_i2c_write_raw(const uint8_t *data, uint16_t length)
+{
+    uint8_t attempt;
+
+    for (attempt = 0u; attempt < OLED_I2C_RETRY_COUNT; ++attempt) {
+        if (oled_i2c_write_raw_once(data, length) == 0) {
+            return 0;
+        }
+        oled_i2c_sda_unlock();
+    }
+
+    return -1;
+}
+
+static int oled_i2c_write_payload(uint8_t control,
+                                  const uint8_t *payload,
+                                  uint16_t length)
+{
+    uint8_t tx[OLED_MAX_WRITE_PAYLOAD + 1u];
+    uint16_t i;
+
+    if ((payload == NULL) || (length == 0u)) {
+        return 0;
+    }
+    if (length > OLED_MAX_WRITE_PAYLOAD) {
+        return -1;
+    }
+
+    tx[0] = control;
+    for (i = 0u; i < length; ++i) {
+        tx[i + 1u] = payload[i];
+    }
+
+    return oled_i2c_write_raw(tx, (uint16_t)(length + 1u));
 }
 
 static int mspm0_i2c_disable(void)
@@ -100,8 +190,7 @@ if(i==0)
 //mode:数据/命令标志 0,表示命令;1,表示数据;
 void OLED_WR_Byte(uint8_t dat,uint8_t mode)
 {
-    unsigned char ptr[2];
-    unsigned long start, cur;
+    uint8_t ptr[2];
 
     if(mode)
     {
@@ -114,30 +203,18 @@ void OLED_WR_Byte(uint8_t dat,uint8_t mode)
         ptr[1] = dat;
     }
 
-    mspm0_get_clock_ms(&start);
-
-    DL_I2C_fillControllerTXFIFO(I2C_OLED_INST, ptr, 2);
-    DL_I2C_clearInterruptStatus(I2C_OLED_INST, DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
-    while (!(DL_I2C_getControllerStatus(I2C_OLED_INST) & DL_I2C_CONTROLLER_STATUS_IDLE));
-    DL_I2C_startControllerTransfer(I2C_OLED_INST, 0x3C, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
-
-    while (!DL_I2C_getRawInterruptStatus(I2C_OLED_INST, DL_I2C_INTERRUPT_CONTROLLER_TX_DONE))
-    {
-        mspm0_get_clock_ms(&cur);
-        if(cur >= (start + I2C_TIMEOUT_MS))
-        {
-            oled_i2c_sda_unlock();
-            break;
-        }
-    }
+    (void)oled_i2c_write_raw(ptr, sizeof(ptr));
 }
 
 //坐标设置
 void OLED_Set_Pos(uint8_t x, uint8_t y) 
 { 
-    OLED_WR_Byte(0xb0+y,OLED_CMD);
-    OLED_WR_Byte(((x&0xf0)>>4)|0x10,OLED_CMD);
-    OLED_WR_Byte((x&0x0f),OLED_CMD);
+    uint8_t cmd[3];
+
+    cmd[0] = (uint8_t)(0xb0u + y);
+    cmd[1] = (uint8_t)(((x & 0xf0u) >> 4u) | 0x10u);
+    cmd[2] = (uint8_t)(x & 0x0fu);
+    (void)oled_i2c_write_payload(0x00u, cmd, sizeof(cmd));
 }
 
 //开启OLED显示    
@@ -159,13 +236,13 @@ void OLED_Display_Off(void)
 //清屏函数,清完屏,整个屏幕是黑色的!和没点亮一样!!!	  
 void OLED_Clear(void)  
 {  
-    uint8_t i,n;		    
+    uint8_t i;
+    uint8_t zeros[OLED_PAGE_WIDTH] = {0};
+
     for(i=0;i<8;i++)  
     {  
-        OLED_WR_Byte (0xb0+i,OLED_CMD);    //设置页地址（0~7）
-        OLED_WR_Byte (0x00,OLED_CMD);      //设置显示位置—列低地址
-        OLED_WR_Byte (0x10,OLED_CMD);      //设置显示位置—列高地址   
-        for(n=0;n<128;n++)OLED_WR_Byte(0,OLED_DATA); 
+        OLED_Set_Pos(0, i);
+        (void)oled_i2c_write_payload(0x40u, zeros, sizeof(zeros));
     } //更新显示
 }
 
@@ -234,6 +311,50 @@ void OLED_ShowString(uint8_t x,uint8_t y,uint8_t *chr,uint8_t sizey)
         if(sizey==8)x+=6;
         else x+=sizey/2;
     }
+}
+
+void OLED_ShowString16Line(uint8_t page, const char *text, uint8_t cols)
+{
+    uint8_t top[OLED_PAGE_WIDTH];
+    uint8_t bottom[OLED_PAGE_WIDTH];
+    uint8_t col;
+    uint8_t i;
+
+    if (page > 6u) {
+        return;
+    }
+    if (cols > OLED_FAST_LINE_COLS) {
+        cols = OLED_FAST_LINE_COLS;
+    }
+
+    for (i = 0u; i < OLED_PAGE_WIDTH; ++i) {
+        top[i] = 0u;
+        bottom[i] = 0u;
+    }
+
+    for (col = 0u; col < cols; ++col) {
+        unsigned char ch = ' ';
+        const unsigned char *glyph;
+        uint8_t x = (uint8_t)(col * 8u);
+
+        if ((text != NULL) && (text[col] != '\0')) {
+            ch = (unsigned char)text[col];
+        }
+        if ((ch < ' ') || (ch > '~')) {
+            ch = '?';
+        }
+
+        glyph = asc2_1608[ch - ' '];
+        for (i = 0u; i < 8u; ++i) {
+            top[x + i] = glyph[i];
+            bottom[x + i] = glyph[i + 8u];
+        }
+    }
+
+    OLED_Set_Pos(0, page);
+    (void)oled_i2c_write_payload(0x40u, top, sizeof(top));
+    OLED_Set_Pos(0, (uint8_t)(page + 1u));
+    (void)oled_i2c_write_payload(0x40u, bottom, sizeof(bottom));
 }
 
 //显示汉字
